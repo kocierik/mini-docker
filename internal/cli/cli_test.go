@@ -162,6 +162,42 @@ func TestRunWritesUsageHelpForUsageErrors(t *testing.T) {
 	}
 }
 
+func TestRunBuildUsageErrorsWriteOnlyPublicHelp(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+
+	exitCode := Run([]string{"build", "--bad-flag"}, stdout, stderr, Services{})
+
+	if exitCode != 2 {
+		t.Fatalf("Run() exit code = %d, want 2", exitCode)
+	}
+	const want = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty stdout", stdout.String())
+	}
+}
+
+func TestRunContainerUsageErrorsWriteOnlyPublicHelp(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+
+	exitCode := Run([]string{"run", "--bad-flag"}, stdout, stderr, Services{})
+
+	if exitCode != 2 {
+		t.Fatalf("Run() exit code = %d, want 2", exitCode)
+	}
+	const want = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty stdout", stdout.String())
+	}
+}
+
 func TestRunReportsServiceError(t *testing.T) {
 	serviceErr := errors.New("pull failed")
 	stderr := &strings.Builder{}

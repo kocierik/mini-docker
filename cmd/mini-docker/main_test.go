@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -88,5 +89,71 @@ func TestDispatchProcessForwardsPublicArgsToCLI(t *testing.T) {
 
 	if exitCode != 7 {
 		t.Fatalf("dispatchProcess() exit code = %d, want 7", exitCode)
+	}
+}
+
+func TestRunProcessHandlesInternalChildBeforeBuildingServices(t *testing.T) {
+	serviceFactoryCalled := false
+	cliCalled := false
+
+	exitCode := runProcess(
+		[]string{"__child"},
+		io.Discard,
+		io.Discard,
+		nil,
+		func(args []string) (bool, int) {
+			if len(args) != 1 || args[0] != "__child" {
+				t.Fatalf("child handler args = %#v, want __child", args)
+			}
+			return true, 19
+		},
+		func([]string) (cli.Services, error) {
+			serviceFactoryCalled = true
+			return cli.Services{}, nil
+		},
+		func([]string, io.Writer, io.Writer, cli.Services) int {
+			cliCalled = true
+			return 0
+		},
+	)
+
+	if exitCode != 19 {
+		t.Fatalf("runProcess() exit code = %d, want 19", exitCode)
+	}
+	if serviceFactoryCalled {
+		t.Fatal("runProcess() built services for internal child")
+	}
+	if cliCalled {
+		t.Fatal("runProcess() called CLI for internal child")
+	}
+}
+
+func TestRunProcessReportsServiceFactoryError(t *testing.T) {
+	stderr := &strings.Builder{}
+	cliCalled := false
+
+	exitCode := runProcess(
+		[]string{"pull", "alpine:3.22"},
+		io.Discard,
+		stderr,
+		nil,
+		func([]string) (bool, int) { return false, 0 },
+		func([]string) (cli.Services, error) {
+			return cli.Services{}, errors.New("HOME is not set")
+		},
+		func([]string, io.Writer, io.Writer, cli.Services) int {
+			cliCalled = true
+			return 0
+		},
+	)
+
+	if exitCode != 1 {
+		t.Fatalf("runProcess() exit code = %d, want 1", exitCode)
+	}
+	if stderr.String() != "HOME is not set\n" {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), "HOME is not set\n")
+	}
+	if cliCalled {
+		t.Fatal("runProcess() called CLI after service factory error")
 	}
 }

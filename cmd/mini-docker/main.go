@@ -14,13 +14,29 @@ import (
 )
 
 func main() {
-	services, err := newServices(os.Environ())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	os.Exit(runProcess(os.Args[1:], os.Stdout, os.Stderr, os.Environ(), runtime.HandleInternalChild, newServices, cli.Run))
+}
+
+func runProcess(
+	args []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	environ []string,
+	handleChild func([]string) (bool, int),
+	buildServices func([]string) (cli.Services, error),
+	runCLI func([]string, io.Writer, io.Writer, cli.Services) int,
+) int {
+	if handled, exitCode := handleChild(args); handled {
+		return exitCode
 	}
 
-	os.Exit(dispatchProcess(os.Args[1:], os.Stdout, os.Stderr, runtime.HandleInternalChild, cli.Run, services))
+	services, err := buildServices(environ)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	return runCLI(args, stdout, stderr, services)
 }
 
 func dispatchProcess(

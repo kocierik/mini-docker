@@ -60,6 +60,7 @@ func Run(args []string, stdout, stderr io.Writer, services Services) int {
 	}
 
 	if err == errUsage {
+		writeHelp(stderr)
 		return 2
 	}
 	var exitErr interface{ ExitCode() int }
@@ -85,7 +86,7 @@ var errUsage = fmt.Errorf("usage error")
 
 func runBuild(ctx context.Context, args []string, stderr io.Writer, builder Builder) error {
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags.SetOutput(io.Discard)
 	tag := flags.String("t", "", "image tag")
 	if err := flags.Parse(args); err != nil {
 		return errUsage
@@ -98,7 +99,7 @@ func runBuild(ctx context.Context, args []string, stderr io.Writer, builder Buil
 
 func runContainer(ctx context.Context, args []string, stderr io.Writer, runner Runner) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags.SetOutput(io.Discard)
 	hostname := flags.String("hostname", "", "container hostname")
 	if err := flags.Parse(args); err != nil {
 		return errUsage
