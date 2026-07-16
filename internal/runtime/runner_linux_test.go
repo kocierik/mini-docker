@@ -36,6 +36,79 @@ func TestTranslateRuntimeProcessErrorMapsPermissionFailures(t *testing.T) {
 	}
 }
 
+func TestCloneRootFSPreservesSpecialModeBits(t *testing.T) {
+	sourceRootFS := t.TempDir()
+	stickyDir := filepath.Join(sourceRootFS, "tmp")
+	if err := os.Mkdir(stickyDir, 0o755); err != nil {
+		t.Fatalf("Mkdir(tmp) error = %v", err)
+	}
+	if err := syscall.Chmod(stickyDir, 0o3755); err != nil {
+		t.Fatalf("Chmod(tmp) error = %v", err)
+	}
+	setIDFile := filepath.Join(sourceRootFS, "bin", "helper")
+	if err := os.MkdirAll(filepath.Dir(setIDFile), 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	if err := os.WriteFile(setIDFile, []byte("helper"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+	if err := syscall.Chmod(setIDFile, 0o6755); err != nil {
+		t.Fatalf("Chmod(helper) error = %v", err)
+	}
+
+	clonedRootFS, err := cloneRootFS(sourceRootFS)
+	if err != nil {
+		t.Fatalf("cloneRootFS() error = %v", err)
+	}
+	defer os.RemoveAll(filepath.Dir(clonedRootFS))
+
+	assertRawMode(t, filepath.Join(clonedRootFS, "tmp"), 0o3755)
+	assertRawMode(t, filepath.Join(clonedRootFS, "bin", "helper"), 0o6755)
+}
+
+func TestCloneRootFSPreservesHardLinks(t *testing.T) {
+	sourceRootFS := t.TempDir()
+	firstPath := filepath.Join(sourceRootFS, "bin", "tool")
+	if err := os.MkdirAll(filepath.Dir(firstPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	if err := os.WriteFile(firstPath, []byte("tool"), 0o755); err != nil {
+		t.Fatalf("WriteFile(tool) error = %v", err)
+	}
+	if err := os.Link(firstPath, filepath.Join(sourceRootFS, "bin", "tool-alias")); err != nil {
+		t.Fatalf("Link(tool alias) error = %v", err)
+	}
+
+	clonedRootFS, err := cloneRootFS(sourceRootFS)
+	if err != nil {
+		t.Fatalf("cloneRootFS() error = %v", err)
+	}
+	defer os.RemoveAll(filepath.Dir(clonedRootFS))
+
+	firstInfo, err := os.Stat(filepath.Join(clonedRootFS, "bin", "tool"))
+	if err != nil {
+		t.Fatalf("Stat(cloned tool) error = %v", err)
+	}
+	secondInfo, err := os.Stat(filepath.Join(clonedRootFS, "bin", "tool-alias"))
+	if err != nil {
+		t.Fatalf("Stat(cloned tool alias) error = %v", err)
+	}
+	if !os.SameFile(firstInfo, secondInfo) {
+		t.Fatal("cloned hard-link paths do not reference the same inode")
+	}
+}
+
+func assertRawMode(t *testing.T, path string, want uint32) {
+	t.Helper()
+	var stat syscall.Stat_t
+	if err := syscall.Stat(path, &stat); err != nil {
+		t.Fatalf("Stat(%q) error = %v", path, err)
+	}
+	if got := stat.Mode & 0o7777; got != want {
+		t.Fatalf("mode(%q) = %#o, want %#o", path, got, want)
+	}
+}
+
 func TestRunnerCreatesIsolatedProcess(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("requires root")

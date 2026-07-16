@@ -22,6 +22,14 @@ func runtimePrivileges() error {
 	return nil
 }
 
+func hardLinkIdentityAtPath(path string) (fileIdentity, uint64, error) {
+	var stat syscall.Stat_t
+	if err := syscall.Lstat(path, &stat); err != nil {
+		return fileIdentity{}, 0, err
+	}
+	return fileIdentity{device: uint64(stat.Dev), inode: stat.Ino}, uint64(stat.Nlink), nil
+}
+
 func childExecutablePath() string {
 	return "/proc/self/exe"
 }

@@ -32,6 +32,11 @@ type directoryMode struct {
 	mode fs.FileMode
 }
 
+type fileIdentity struct {
+	device uint64
+	inode  uint64
+}
+
 type Store struct {
 	root string
 }
@@ -172,7 +177,8 @@ func copyRootFS(ctx context.Context, sourceRootFS, destinationRootFS string) err
 	}
 
 	directories := []directoryMode{{path: destinationRootFS, mode: sourceInfo.Mode() & preservedModeMask}}
-	err = copyDirectoryContents(ctx, sourceRoot, "", destinationRootFS, &directories)
+	hardLinks := make(map[fileIdentity]string)
+	err = copyDirectoryContents(ctx, sourceRoot, "", destinationRootFS, &directories, hardLinks)
 	if err != nil {
 		return fmt.Errorf("copy rootfs: %w", err)
 	}
@@ -184,7 +190,7 @@ func copyRootFS(ctx context.Context, sourceRootFS, destinationRootFS string) err
 	return nil
 }
 
-func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDirectory, destinationDirectory string, directories *[]directoryMode) error {
+func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDirectory, destinationDirectory string, directories *[]directoryMode, hardLinks map[fileIdentity]string) error {
 	entries, err := sourceDir.ReadDir(-1)
 	if err != nil {
 		return err
@@ -225,7 +231,7 @@ func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDire
 			if err != nil {
 				return err
 			}
-			childErr := copyDirectoryContents(ctx, childDir, relativePath, destinationPath, directories)
+			childErr := copyDirectoryContents(ctx, childDir, relativePath, destinationPath, directories, hardLinks)
 			closeErr := childDir.Close()
 			if childErr != nil {
 				return childErr
@@ -234,7 +240,7 @@ func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDire
 				return closeErr
 			}
 		case mode.IsRegular():
-			if err := copyRegularFileAt(int(sourceDir.Fd()), entry.Name(), destinationPath, mode&preservedModeMask); err != nil {
+			if err := copyRegularFileAt(int(sourceDir.Fd()), entry.Name(), destinationPath, mode&preservedModeMask, hardLinks); err != nil {
 				return err
 			}
 		case mode&os.ModeSymlink != 0:
@@ -256,7 +262,7 @@ func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDire
 	return nil
 }
 
-func copyRegularFileAt(sourceDirFD int, sourceName, destinationPath string, mode fs.FileMode) error {
+func copyRegularFileAt(sourceDirFD int, sourceName, destinationPath string, mode fs.FileMode, hardLinks map[fileIdentity]string) error {
 	source, err := openRegularFileAt(sourceDirFD, sourceName)
 	if err != nil {
 		return err
@@ -271,6 +277,17 @@ func copyRegularFileAt(sourceDirFD int, sourceName, destinationPath string, mode
 		return fmt.Errorf("source entry is no longer a regular file")
 	}
 
+	var stat unix.Stat_t
+	if err := unix.Fstat(int(source.Fd()), &stat); err != nil {
+		return err
+	}
+	identity := fileIdentity{device: uint64(stat.Dev), inode: stat.Ino}
+	if stat.Nlink > 1 {
+		if existingPath, ok := hardLinks[identity]; ok {
+			return os.Link(existingPath, destinationPath)
+		}
+	}
+
 	destination, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
@@ -283,7 +300,13 @@ func copyRegularFileAt(sourceDirFD int, sourceName, destinationPath string, mode
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Chmod(destinationPath, mode)
+	if err := os.Chmod(destinationPath, mode); err != nil {
+		return err
+	}
+	if stat.Nlink > 1 {
+		hardLinks[identity] = destinationPath
+	}
+	return nil
 }
 
 func openDirectoryNoFollow(path string) (*os.File, error) {

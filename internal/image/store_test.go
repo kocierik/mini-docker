@@ -88,6 +88,41 @@ func TestStorePutAndGet(t *testing.T) {
 	}
 }
 
+func TestStorePutPreservesHardLinks(t *testing.T) {
+	sourceRootFS := t.TempDir()
+	firstPath := filepath.Join(sourceRootFS, "bin", "tool")
+	if err := os.MkdirAll(filepath.Dir(firstPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	if err := os.WriteFile(firstPath, []byte("tool"), 0o755); err != nil {
+		t.Fatalf("WriteFile(tool) error = %v", err)
+	}
+	secondPath := filepath.Join(sourceRootFS, "bin", "tool-alias")
+	if err := os.Link(firstPath, secondPath); err != nil {
+		t.Fatalf("Link(tool alias) error = %v", err)
+	}
+
+	store := NewStore(t.TempDir())
+	if err := store.Put(context.Background(), "demo:latest", sourceRootFS, Metadata{Name: "demo:latest"}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	img, err := store.Get("demo:latest")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	firstInfo, err := os.Stat(filepath.Join(img.RootFS, "bin", "tool"))
+	if err != nil {
+		t.Fatalf("Stat(tool) error = %v", err)
+	}
+	secondInfo, err := os.Stat(filepath.Join(img.RootFS, "bin", "tool-alias"))
+	if err != nil {
+		t.Fatalf("Stat(tool alias) error = %v", err)
+	}
+	if !os.SameFile(firstInfo, secondInfo) {
+		t.Fatal("stored hard-link paths do not reference the same inode")
+	}
+}
+
 func TestStoreGetUnknownImage(t *testing.T) {
 	store := NewStore(t.TempDir())
 

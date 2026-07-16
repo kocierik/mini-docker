@@ -50,6 +50,43 @@ func TestCloneIntoBuildRootPreservesSpecialModeBits(t *testing.T) {
 	assertUnixModePreserved(t, clonedSetIDFile, 0o7777, 0o6755)
 }
 
+func TestCloneIntoBuildRootPreservesHardLinks(t *testing.T) {
+	sourceRootFS := t.TempDir()
+	firstPath := filepath.Join(sourceRootFS, "bin", "tool")
+	if err := os.MkdirAll(filepath.Dir(firstPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	if err := os.WriteFile(firstPath, []byte("tool"), 0o755); err != nil {
+		t.Fatalf("WriteFile(tool) error = %v", err)
+	}
+	if err := os.Link(firstPath, filepath.Join(sourceRootFS, "bin", "tool-alias")); err != nil {
+		t.Fatalf("Link(tool alias) error = %v", err)
+	}
+
+	buildRootFS, cleanup, err := cloneIntoBuildRoot(sourceRootFS)
+	if err != nil {
+		t.Fatalf("cloneIntoBuildRoot() error = %v", err)
+	}
+	defer cleanup()
+
+	assertSameFile(t, filepath.Join(buildRootFS, "bin", "tool"), filepath.Join(buildRootFS, "bin", "tool-alias"))
+}
+
+func assertSameFile(t *testing.T, firstPath, secondPath string) {
+	t.Helper()
+	firstInfo, err := os.Stat(firstPath)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", firstPath, err)
+	}
+	secondInfo, err := os.Stat(secondPath)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", secondPath, err)
+	}
+	if !os.SameFile(firstInfo, secondInfo) {
+		t.Fatalf("%q and %q do not reference the same inode", firstPath, secondPath)
+	}
+}
+
 func TestBuildAppliesDockerfileSequentially(t *testing.T) {
 	store := image.NewStore(filepath.Join(t.TempDir(), "store"))
 	baseRootFS := filepath.Join(t.TempDir(), "base-rootfs")

@@ -15,6 +15,10 @@ func runtimePrivileges() error {
 	return nil
 }
 
+func hardLinkIdentityAtPath(string) (fileIdentity, uint64, error) {
+	return fileIdentity{}, 1, nil
+}
+
 func childExecutablePath() string {
 	return ""
 }

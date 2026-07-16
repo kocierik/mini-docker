@@ -25,6 +25,7 @@ func TestPullPublishesFlattenedImage(t *testing.T) {
 		return &v1.ConfigFile{Config: v1.Config{Cmd: []string{"/bin/demo"}}}, io.NopCloser(bytes.NewReader(makeTestTar(t,
 			tarEntry{header: tar.Header{Name: "bin", Typeflag: tar.TypeDir, Mode: 0o755}},
 			tarEntry{header: tar.Header{Name: "bin/demo", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("hello"))}, body: "hello"},
+			tarEntry{header: tar.Header{Name: "bin/demo-hard-link", Typeflag: tar.TypeLink, Linkname: "bin/demo"}},
 			tarEntry{header: tar.Header{Name: "bin/busybox", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("busybox"))}, body: "busybox"},
 			tarEntry{header: tar.Header{Name: "bin/demo-link", Typeflag: tar.TypeSymlink, Linkname: "demo"}},
 			tarEntry{header: tar.Header{Name: "bin/arch", Typeflag: tar.TypeSymlink, Linkname: "/bin/busybox"}},
@@ -51,6 +52,17 @@ func TestPullPublishesFlattenedImage(t *testing.T) {
 	}
 	if string(contents) != "hello" {
 		t.Fatalf("bin/demo contents = %q, want %q", string(contents), "hello")
+	}
+	demoInfo, err := os.Stat(filepath.Join(got.RootFS, "bin", "demo"))
+	if err != nil {
+		t.Fatalf("Stat(bin/demo) error = %v", err)
+	}
+	hardLinkInfo, err := os.Stat(filepath.Join(got.RootFS, "bin", "demo-hard-link"))
+	if err != nil {
+		t.Fatalf("Stat(bin/demo-hard-link) error = %v", err)
+	}
+	if !os.SameFile(demoInfo, hardLinkInfo) {
+		t.Fatal("pulled hard-link paths do not reference the same inode")
 	}
 	linkTarget, err := os.Readlink(filepath.Join(got.RootFS, "bin", "demo-link"))
 	if err != nil {

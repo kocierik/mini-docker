@@ -26,6 +26,11 @@ type Builder struct {
 
 type runtimeExecutor struct{}
 
+type fileIdentity struct {
+	device uint64
+	inode  uint64
+}
+
 func New(store *image.Store, executor Executor) *Builder {
 	if executor == nil {
 		executor = runtimeExecutor{}
@@ -123,6 +128,7 @@ func cloneIntoBuildRoot(sourceRootFS string) (string, func(), error) {
 }
 
 func copyTree(sourceRoot, destinationRoot string) error {
+	hardLinks := make(map[fileIdentity]string)
 	return filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -156,7 +162,22 @@ func copyTree(sourceRoot, destinationRoot string) error {
 			}
 			return syscall.Chmod(destinationPath, rawMode)
 		case mode.IsRegular():
-			return copyTreeRegularFile(path, destinationPath, rawMode)
+			identity, linkCount, err := hardLinkIdentityAtPath(path)
+			if err != nil {
+				return err
+			}
+			if linkCount > 1 {
+				if existingPath, ok := hardLinks[identity]; ok {
+					return os.Link(existingPath, destinationPath)
+				}
+			}
+			if err := copyTreeRegularFile(path, destinationPath, rawMode); err != nil {
+				return err
+			}
+			if linkCount > 1 {
+				hardLinks[identity] = destinationPath
+			}
+			return nil
 		case mode&os.ModeSymlink != 0:
 			target, err := os.Readlink(path)
 			if err != nil {
@@ -170,6 +191,14 @@ func copyTree(sourceRoot, destinationRoot string) error {
 			return fmt.Errorf("unsupported rootfs entry type at %q", relativePath)
 		}
 	})
+}
+
+func hardLinkIdentityAtPath(path string) (fileIdentity, uint64, error) {
+	var stat syscall.Stat_t
+	if err := syscall.Lstat(path, &stat); err != nil {
+		return fileIdentity{}, 0, err
+	}
+	return fileIdentity{device: uint64(stat.Dev), inode: stat.Ino}, uint64(stat.Nlink), nil
 }
 
 func copyTreeRegularFile(sourcePath, destinationPath string, rawMode uint32) error {

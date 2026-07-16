@@ -17,6 +17,7 @@ import (
 const (
 	internalChildArgument = "__child"
 	childConfigEnvName    = "MINI_DOCKER_CHILD_CONFIG"
+	preservedModeMask     = fs.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
 )
 
 var (
@@ -55,6 +56,16 @@ type childConfig struct {
 	Command  []string `json:"command"`
 }
 
+type directoryMode struct {
+	path string
+	mode fs.FileMode
+}
+
+type fileIdentity struct {
+	device uint64
+	inode  uint64
+}
+
 func NewRunner(store *image.Store) *Runner {
 	return &Runner{store: store}
 }
@@ -81,7 +92,7 @@ func (runner *Runner) Run(ctx context.Context, imageName string, config Config) 
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(temporaryRootFS)
+	defer os.RemoveAll(filepath.Dir(temporaryRootFS))
 
 	return RunRootFS(ctx, Config{
 		RootFS:   temporaryRootFS,
@@ -215,7 +226,9 @@ func cloneRootFS(sourceRootFS string) (string, error) {
 }
 
 func copyTree(sourceRoot, destinationRoot string) error {
-	return filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, err error) error {
+	directories := make([]directoryMode, 0)
+	hardLinks := make(map[fileIdentity]string)
+	err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -229,7 +242,11 @@ func copyTree(sourceRoot, destinationRoot string) error {
 			if err != nil {
 				return err
 			}
-			return os.MkdirAll(destinationRoot, info.Mode().Perm())
+			if err := os.MkdirAll(destinationRoot, 0o700); err != nil {
+				return err
+			}
+			directories = append(directories, directoryMode{path: destinationRoot, mode: info.Mode()})
+			return nil
 		}
 
 		destinationPath := filepath.Join(destinationRoot, relativePath)
@@ -240,9 +257,28 @@ func copyTree(sourceRoot, destinationRoot string) error {
 
 		switch mode := info.Mode(); {
 		case mode.IsDir():
-			return os.MkdirAll(destinationPath, mode.Perm())
+			if err := os.MkdirAll(destinationPath, 0o700); err != nil {
+				return err
+			}
+			directories = append(directories, directoryMode{path: destinationPath, mode: mode})
+			return nil
 		case mode.IsRegular():
-			return copyRegularFile(path, destinationPath, mode)
+			identity, linkCount, err := hardLinkIdentityAtPath(path)
+			if err != nil {
+				return err
+			}
+			if linkCount > 1 {
+				if existingPath, ok := hardLinks[identity]; ok {
+					return os.Link(existingPath, destinationPath)
+				}
+			}
+			if err := copyRegularFile(path, destinationPath, mode); err != nil {
+				return err
+			}
+			if linkCount > 1 {
+				hardLinks[identity] = destinationPath
+			}
+			return nil
 		case mode&os.ModeSymlink != 0:
 			target, err := os.Readlink(path)
 			if err != nil {
@@ -253,6 +289,15 @@ func copyTree(sourceRoot, destinationRoot string) error {
 			return fmt.Errorf("unsupported rootfs entry type at %q", relativePath)
 		}
 	})
+	if err != nil {
+		return err
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		if err := os.Chmod(directories[index].path, directories[index].mode&preservedModeMask); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyRegularFile(sourcePath, destinationPath string, mode fs.FileMode) error {
@@ -266,14 +311,18 @@ func copyRegularFile(sourcePath, destinationPath string, mode fs.FileMode) error
 	}
 	defer source.Close()
 
-	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode.Perm())
+	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	defer destination.Close()
 
-	if _, err := io.Copy(destination, source); err != nil {
-		return err
+	_, copyErr := io.Copy(destination, source)
+	closeErr := destination.Close()
+	if copyErr != nil {
+		return copyErr
 	}
-	return destination.Chmod(mode.Perm())
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chmod(destinationPath, mode&preservedModeMask)
 }
