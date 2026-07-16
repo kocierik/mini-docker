@@ -133,7 +133,7 @@ Expected: FAIL because the image package is missing.
 
 - [ ] **Step 3: Implement the store**
 
-Serialize metadata as JSON. `Put` creates an immutable `<root>/objects/.tmp-*`, copies into `rootfs`, writes `metadata.json`, and renames it to a generated object ID. It then writes a temporary `<root>/refs/<sha256(name)>` file containing that object ID and atomically renames the reference file into place. `Get` resolves the reference before opening the object. Check `ctx.Err()` during `filepath.WalkDir`. Preserve directories, regular-file modes, and relative symlinks; reject sockets, device nodes, absolute symlinks, and escaping symlink targets. This indirection makes tag replacement atomic on Linux; unreferenced old objects may remain until a future garbage-collection feature.
+Serialize metadata as JSON. `Put` creates an immutable `<root>/objects/.tmp-*`, copies into `rootfs`, writes `metadata.json`, and renames it to a generated object ID. It then writes a temporary `<root>/refs/<sha256(name)>` file containing that object ID and atomically renames the reference file into place. `Get` resolves the reference before opening the object. Check `ctx.Err()` during `filepath.WalkDir`. Preserve directories, regular-file modes, relative symlinks, and rootfs-internal absolute symlinks used by OCI images; reject sockets, device nodes, escaping relative symlink targets, and any extraction or copy path that follows a symlink outside the rootfs. This indirection makes tag replacement atomic on Linux; unreferenced old objects may remain until a future garbage-collection feature.
 
 - [ ] **Step 4: Run store tests**
 

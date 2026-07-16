@@ -234,16 +234,9 @@ func writeSymlink(rootfs, relativePath, target string) error {
 }
 
 func writeHardLink(rootfs, relativePath, target string) error {
-	targetPath, err := safeRootfsPath(rootfs, target)
+	targetPath, err := safeHardLinkTarget(rootfs, target)
 	if err != nil {
-		return fmt.Errorf("unsafe hard link %q -> %q", relativePath, target)
-	}
-	info, err := os.Lstat(targetPath)
-	if err != nil {
-		return fmt.Errorf("inspect hard link target %q: %w", target, err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("unsupported hard link target %q", target)
+		return fmt.Errorf("unsafe hard link %q -> %q: %w", relativePath, target, err)
 	}
 	if err := ensureSafeParent(rootfs, relativePath); err != nil {
 		return err
@@ -254,6 +247,33 @@ func writeHardLink(rootfs, relativePath, target string) error {
 		return fmt.Errorf("create hard link %q: %w", relativePath, err)
 	}
 	return nil
+}
+
+func safeHardLinkTarget(rootfs, target string) (string, error) {
+	cleaned, err := cleanArchivePath(target)
+	if err != nil {
+		return "", err
+	}
+
+	currentPath := rootfs
+	components := strings.Split(cleaned, "/")
+	for index, component := range components {
+		currentPath = filepath.Join(currentPath, filepath.FromSlash(component))
+		info, err := os.Lstat(currentPath)
+		if err != nil {
+			return "", fmt.Errorf("inspect target component %q: %w", strings.Join(components[:index+1], "/"), err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("target traverses symlink %q", strings.Join(components[:index+1], "/"))
+		}
+		if index < len(components)-1 && !info.IsDir() {
+			return "", fmt.Errorf("target component %q is not a directory", strings.Join(components[:index+1], "/"))
+		}
+		if index == len(components)-1 && !info.Mode().IsRegular() {
+			return "", fmt.Errorf("target %q is not a regular file", target)
+		}
+	}
+	return currentPath, nil
 }
 
 func safeRootfsPath(rootfs, archivePath string) (string, error) {

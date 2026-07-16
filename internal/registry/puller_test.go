@@ -137,6 +137,18 @@ func TestPullFailuresLeaveNoPublishedImage(t *testing.T) {
 			wantErr: "unsafe symlink",
 			target:  "index.docker.io/library/alpine:3.22",
 		},
+		{
+			name:      "hard link through absolute symlink",
+			reference: "alpine:3.22",
+			fetch: func(context.Context, name.Reference) (*v1.ConfigFile, io.ReadCloser, error) {
+				return &v1.ConfigFile{}, io.NopCloser(bytes.NewReader(makeTestTar(t,
+					tarEntry{header: tar.Header{Name: "host", Typeflag: tar.TypeSymlink, Linkname: "/tmp"}},
+					tarEntry{header: tar.Header{Name: "escape", Typeflag: tar.TypeLink, Linkname: "host/mini-docker-hard-link-target"}},
+				))), nil
+			},
+			wantErr: "unsafe hard link",
+			target:  "index.docker.io/library/alpine:3.22",
+		},
 	}
 
 	for _, test := range tests {
