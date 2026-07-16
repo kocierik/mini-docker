@@ -13,9 +13,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 var ErrNotFound = errors.New("image not found")
+
+const preservedModeMask = fs.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+
+var testHookBeforeCopySourceEntry func(relativePath string) error
+var testHookBeforeObjectPublication func(temporaryObjectPath, objectPath string) error
+var testHookBeforeReferencePublication func(temporaryReferencePath, referencePath string) error
+
+type directoryMode struct {
+	path string
+	mode fs.FileMode
+}
 
 type Store struct {
 	root string
@@ -68,6 +82,14 @@ func (store *Store) Put(ctx context.Context, name, sourceRootFS string, metadata
 		return err
 	}
 	objectPath := filepath.Join(objectsRoot, objectID)
+	if testHookBeforeObjectPublication != nil {
+		if err := testHookBeforeObjectPublication(temporaryObject, objectPath); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.Rename(temporaryObject, objectPath); err != nil {
 		return fmt.Errorf("publish object: %w", err)
 	}
@@ -118,7 +140,13 @@ func (store *Store) Get(name string) (Image, error) {
 }
 
 func copyRootFS(ctx context.Context, sourceRootFS, destinationRootFS string) error {
-	sourceInfo, err := os.Lstat(sourceRootFS)
+	sourceRoot, err := openDirectoryNoFollow(sourceRootFS)
+	if err != nil {
+		return fmt.Errorf("inspect source rootfs: %w", err)
+	}
+	defer sourceRoot.Close()
+
+	sourceInfo, err := sourceRoot.Stat()
 	if err != nil {
 		return fmt.Errorf("inspect source rootfs: %w", err)
 	}
@@ -129,53 +157,8 @@ func copyRootFS(ctx context.Context, sourceRootFS, destinationRootFS string) err
 		return fmt.Errorf("create object rootfs: %w", err)
 	}
 
-	type directoryMode struct {
-		path string
-		mode fs.FileMode
-	}
-	directories := []directoryMode{{path: destinationRootFS, mode: sourceInfo.Mode().Perm()}}
-	err = filepath.WalkDir(sourceRootFS, func(sourcePath string, entry fs.DirEntry, walkErr error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if walkErr != nil {
-			return walkErr
-		}
-		relativePath, err := filepath.Rel(sourceRootFS, sourcePath)
-		if err != nil {
-			return err
-		}
-		if relativePath == "." {
-			return nil
-		}
-
-		destinationPath := filepath.Join(destinationRootFS, relativePath)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		switch {
-		case entry.IsDir():
-			if err := os.Mkdir(destinationPath, 0o700); err != nil {
-				return err
-			}
-			directories = append(directories, directoryMode{path: destinationPath, mode: info.Mode().Perm()})
-			return nil
-		case info.Mode().IsRegular():
-			return copyRegularFile(sourcePath, destinationPath, info.Mode().Perm())
-		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(sourcePath)
-			if err != nil {
-				return err
-			}
-			if !safeSymlinkTarget(relativePath, target) {
-				return fmt.Errorf("unsafe symlink %q -> %q", relativePath, target)
-			}
-			return os.Symlink(target, destinationPath)
-		default:
-			return fmt.Errorf("unsupported file type at %q", relativePath)
-		}
-	})
+	directories := []directoryMode{{path: destinationRootFS, mode: sourceInfo.Mode() & preservedModeMask}}
+	err = copyDirectoryContents(ctx, sourceRoot, "", destinationRootFS, &directories)
 	if err != nil {
 		return fmt.Errorf("copy rootfs: %w", err)
 	}
@@ -187,12 +170,89 @@ func copyRootFS(ctx context.Context, sourceRootFS, destinationRootFS string) err
 	return nil
 }
 
-func copyRegularFile(sourcePath, destinationPath string, mode fs.FileMode) error {
-	source, err := os.Open(sourcePath)
+func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDirectory, destinationDirectory string, directories *[]directoryMode) error {
+	entries, err := sourceDir.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		relativePath := entry.Name()
+		if relativeDirectory != "" {
+			relativePath = filepath.Join(relativeDirectory, entry.Name())
+		}
+		if testHookBeforeCopySourceEntry != nil {
+			if err := testHookBeforeCopySourceEntry(relativePath); err != nil {
+				return err
+			}
+		}
+
+		mode, err := fileModeAt(int(sourceDir.Fd()), entry.Name())
+		if err != nil {
+			return err
+		}
+		destinationPath := filepath.Join(destinationDirectory, entry.Name())
+
+		switch {
+		case mode.IsDir():
+			if err := os.Mkdir(destinationPath, 0o700); err != nil {
+				return err
+			}
+			*directories = append(*directories, directoryMode{path: destinationPath, mode: mode & preservedModeMask})
+
+			childDir, err := openDirectoryAt(int(sourceDir.Fd()), entry.Name())
+			if err != nil {
+				return err
+			}
+			childErr := copyDirectoryContents(ctx, childDir, relativePath, destinationPath, directories)
+			closeErr := childDir.Close()
+			if childErr != nil {
+				return childErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		case mode.IsRegular():
+			if err := copyRegularFileAt(int(sourceDir.Fd()), entry.Name(), destinationPath, mode&preservedModeMask); err != nil {
+				return err
+			}
+		case mode&os.ModeSymlink != 0:
+			target, err := readlinkAt(int(sourceDir.Fd()), entry.Name())
+			if err != nil {
+				return err
+			}
+			if !safeSymlinkTarget(relativePath, target) {
+				return fmt.Errorf("unsafe symlink %q -> %q", relativePath, target)
+			}
+			if err := os.Symlink(target, destinationPath); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported file type at %q", relativePath)
+		}
+	}
+
+	return nil
+}
+
+func copyRegularFileAt(sourceDirFD int, sourceName, destinationPath string, mode fs.FileMode) error {
+	source, err := openRegularFileAt(sourceDirFD, sourceName)
 	if err != nil {
 		return err
 	}
 	defer source.Close()
+
+	info, err := source.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("source entry is no longer a regular file")
+	}
 
 	destination, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -207,6 +267,83 @@ func copyRegularFile(sourcePath, destinationPath string, mode fs.FileMode) error
 		return closeErr
 	}
 	return os.Chmod(destinationPath, mode)
+}
+
+func openDirectoryNoFollow(path string) (*os.File, error) {
+	fd, err := unix.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), path), nil
+}
+
+func openDirectoryAt(sourceDirFD int, name string) (*os.File, error) {
+	fd, err := unix.Openat(sourceDirFD, name, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), name), nil
+}
+
+func openRegularFileAt(sourceDirFD int, name string) (*os.File, error) {
+	fd, err := unix.Openat(sourceDirFD, name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), name), nil
+}
+
+func fileModeAt(sourceDirFD int, name string) (fs.FileMode, error) {
+	var stat unix.Stat_t
+	if err := unix.Fstatat(sourceDirFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return 0, err
+	}
+	return fileModeFromStat(stat), nil
+}
+
+func fileModeFromStat(stat unix.Stat_t) fs.FileMode {
+	mode := fs.FileMode(stat.Mode & 0o777)
+	if stat.Mode&syscall.S_ISUID != 0 {
+		mode |= os.ModeSetuid
+	}
+	if stat.Mode&syscall.S_ISGID != 0 {
+		mode |= os.ModeSetgid
+	}
+	if stat.Mode&syscall.S_ISVTX != 0 {
+		mode |= os.ModeSticky
+	}
+
+	switch stat.Mode & syscall.S_IFMT {
+	case syscall.S_IFDIR:
+		mode |= os.ModeDir
+	case syscall.S_IFLNK:
+		mode |= os.ModeSymlink
+	case syscall.S_IFBLK:
+		mode |= os.ModeDevice
+	case syscall.S_IFCHR:
+		mode |= os.ModeDevice | os.ModeCharDevice
+	case syscall.S_IFIFO:
+		mode |= os.ModeNamedPipe
+	case syscall.S_IFSOCK:
+		mode |= os.ModeSocket
+	}
+
+	return mode
+}
+
+func readlinkAt(sourceDirFD int, name string) (string, error) {
+	size := 128
+	for {
+		buffer := make([]byte, size)
+		read, err := unix.Readlinkat(sourceDirFD, name, buffer)
+		if err != nil {
+			return "", err
+		}
+		if read < len(buffer) {
+			return string(buffer[:read]), nil
+		}
+		size *= 2
+	}
 }
 
 func safeSymlinkTarget(linkPath, target string) bool {
@@ -260,7 +397,13 @@ func replaceReference(refsRoot, referenceName, objectID string) error {
 	if err := temporaryReference.Close(); err != nil {
 		return fmt.Errorf("close temporary reference: %w", err)
 	}
-	if err := os.Rename(temporaryPath, filepath.Join(refsRoot, referenceName)); err != nil {
+	referencePath := filepath.Join(refsRoot, referenceName)
+	if testHookBeforeReferencePublication != nil {
+		if err := testHookBeforeReferencePublication(temporaryPath, referencePath); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(temporaryPath, referencePath); err != nil {
 		return fmt.Errorf("publish image reference: %w", err)
 	}
 	removeTemporary = false
