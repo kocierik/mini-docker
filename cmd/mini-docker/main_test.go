@@ -196,3 +196,70 @@ func TestRunProcessPrintsTopLevelHelpWithoutEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestRunProcessPrintsPublicUsageForInvalidInvocationWithoutEnvironment(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode int
+		wantOut  string
+	}{
+		{
+			name:     "no command",
+			args:     nil,
+			wantCode: 2,
+			wantOut:  "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n",
+		},
+		{
+			name:     "unknown command",
+			args:     []string{"inspect"},
+			wantCode: 2,
+			wantOut:  "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n",
+		},
+		{
+			name:     "pull missing image",
+			args:     []string{"pull"},
+			wantCode: 2,
+			wantOut:  "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n",
+		},
+		{
+			name:     "build missing args",
+			args:     []string{"build", "-t", "demo:latest"},
+			wantCode: 2,
+			wantOut:  "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n",
+		},
+		{
+			name:     "run missing image",
+			args:     []string{"run", "--hostname", "demo-box"},
+			wantCode: 2,
+			wantOut:  "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout := &strings.Builder{}
+			stderr := &strings.Builder{}
+
+			exitCode := runProcess(
+				test.args,
+				stdout,
+				stderr,
+				nil,
+				func([]string) (bool, int) { return false, 0 },
+				newServices,
+				cli.Run,
+			)
+
+			if exitCode != test.wantCode {
+				t.Fatalf("runProcess() exit code = %d, want %d", exitCode, test.wantCode)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty stdout", stdout.String())
+			}
+			if stderr.String() != test.wantOut {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), test.wantOut)
+			}
+		})
+	}
+}

@@ -30,35 +30,67 @@ type Services struct {
 
 const publicHelp = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
 
+type Invocation struct {
+	execute func(Services) error
+}
+
 func Run(args []string, stdout, stderr io.Writer, services Services) int {
+	invocation, handled, exitCode := Prepare(args, stdout, stderr)
+	if handled {
+		return exitCode
+	}
+	return invocation.Run(stderr, services)
+}
+
+func Prepare(args []string, stdout, stderr io.Writer) (Invocation, bool, int) {
 	if len(args) == 0 {
 		writeHelp(stderr)
-		return 2
+		return Invocation{}, true, 2
 	}
 	if isHelpRequest(args) {
 		writeHelp(stdout)
-		return 0
+		return Invocation{}, true, 0
 	}
 
 	ctx := context.Background()
-	var err error
 
 	switch args[0] {
 	case "pull":
 		if len(args) != 2 {
 			writeHelp(stderr)
-			return 2
+			return Invocation{}, true, 2
 		}
-		err = services.Puller.Pull(ctx, args[1])
+		image := args[1]
+		return Invocation{execute: func(services Services) error {
+			return services.Puller.Pull(ctx, image)
+		}}, false, 0
 	case "build":
-		err = runBuild(ctx, args[1:], stderr, services.Builder)
+		tag, buildContext, ok := parseBuildArgs(args[1:])
+		if !ok {
+			writeHelp(stderr)
+			return Invocation{}, true, 2
+		}
+		return Invocation{execute: func(services Services) error {
+			return services.Builder.Build(ctx, tag, buildContext)
+		}}, false, 0
 	case "run":
-		err = runContainer(ctx, args[1:], stderr, services.Runner)
+		image, config, ok := parseRunArgs(args[1:])
+		if !ok {
+			writeHelp(stderr)
+			return Invocation{}, true, 2
+		}
+		return Invocation{execute: func(services Services) error {
+			return services.Runner.Run(ctx, image, config)
+		}}, false, 0
 	default:
 		writeHelp(stderr)
-		return 2
+		return Invocation{}, true, 2
 	}
 
+}
+
+func (invocation Invocation) Run(stderr io.Writer, services Services) int {
+	err := invocation.execute(services)
 	if err == errUsage {
 		writeHelp(stderr)
 		return 2
@@ -84,33 +116,33 @@ func writeHelp(writer io.Writer) {
 
 var errUsage = fmt.Errorf("usage error")
 
-func runBuild(ctx context.Context, args []string, stderr io.Writer, builder Builder) error {
+func parseBuildArgs(args []string) (string, string, bool) {
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	tag := flags.String("t", "", "image tag")
 	if err := flags.Parse(args); err != nil {
-		return errUsage
+		return "", "", false
 	}
 	if *tag == "" || flags.NArg() != 1 {
-		return errUsage
+		return "", "", false
 	}
-	return builder.Build(ctx, *tag, flags.Arg(0))
+	return *tag, flags.Arg(0), true
 }
 
-func runContainer(ctx context.Context, args []string, stderr io.Writer, runner Runner) error {
+func parseRunArgs(args []string) (string, runtime.Config, bool) {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	hostname := flags.String("hostname", "", "container hostname")
 	if err := flags.Parse(args); err != nil {
-		return errUsage
+		return "", runtime.Config{}, false
 	}
 	if flags.NArg() == 0 {
-		return errUsage
+		return "", runtime.Config{}, false
 	}
 
 	config := runtime.Config{
 		Hostname: *hostname,
 		Command:  flags.Args()[1:],
 	}
-	return runner.Run(ctx, flags.Arg(0), config)
+	return flags.Arg(0), config, true
 }

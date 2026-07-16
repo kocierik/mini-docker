@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	os.Exit(runProcess(os.Args[1:], os.Stdout, os.Stderr, os.Environ(), runtime.HandleInternalChild, newServices, cli.Run))
+	os.Exit(runProcess(os.Args[1:], os.Stdout, os.Stderr, os.Environ(), runtime.HandleInternalChild, newServices, nil))
 }
 
 func runProcess(
@@ -29,8 +29,10 @@ func runProcess(
 	if handled, exitCode := handleChild(args); handled {
 		return exitCode
 	}
-	if isTopLevelHelpRequest(args) {
-		return runCLI(args, stdout, stderr, cli.Services{})
+
+	invocation, handled, exitCode := cli.Prepare(args, stdout, stderr)
+	if handled {
+		return exitCode
 	}
 
 	services, err := buildServices(environ)
@@ -39,6 +41,9 @@ func runProcess(
 		return 1
 	}
 
+	if runCLI == nil {
+		return invocation.Run(stderr, services)
+	}
 	return runCLI(args, stdout, stderr, services)
 }
 
@@ -54,10 +59,6 @@ func dispatchProcess(
 		return exitCode
 	}
 	return runCLI(args, stdout, stderr, services)
-}
-
-func isTopLevelHelpRequest(args []string) bool {
-	return len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help")
 }
 
 func newServices(environ []string) (cli.Services, error) {
