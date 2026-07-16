@@ -44,6 +44,18 @@ func (fake *fakeRunner) Run(_ context.Context, image string, config runtime.Conf
 	return fake.err
 }
 
+type exitCodeError struct {
+	code int
+}
+
+func (err exitCodeError) Error() string {
+	return "exit status"
+}
+
+func (err exitCodeError) ExitCode() int {
+	return err.code
+}
+
 func TestRunDispatchesPull(t *testing.T) {
 	puller := &fakePuller{}
 	services := Services{Puller: puller}
@@ -126,5 +138,19 @@ func TestRunReportsServiceError(t *testing.T) {
 	}
 	if stderr.String() != "pull failed\n" {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), "pull failed\n")
+	}
+}
+
+func TestRunPropagatesContainerExitStatus(t *testing.T) {
+	stderr := &strings.Builder{}
+	services := Services{Runner: &fakeRunner{err: exitCodeError{code: 17}}}
+
+	exitCode := Run([]string{"run", "hello:latest", "/bin/false"}, &strings.Builder{}, stderr, services)
+
+	if exitCode != 17 {
+		t.Fatalf("Run() exit code = %d, want 17", exitCode)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty stderr", stderr.String())
 	}
 }

@@ -90,3 +90,11 @@ func TestHandleInternalChildIgnoresNonChildArgs(t *testing.T) {
 		t.Fatalf("HandleInternalChild(__childish) exitCode = %d, want 0", exitCode)
 	}
 }
+
+func TestUnsupportedRuntimeErrorMessage(t *testing.T) {
+	const want = "mini-docker run requires Linux or WSL2"
+
+	if errRuntimeUnsupported.Error() != want {
+		t.Fatalf("errRuntimeUnsupported.Error() = %q, want %q", errRuntimeUnsupported.Error(), want)
+	}
+}

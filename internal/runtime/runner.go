@@ -20,11 +20,29 @@ const (
 )
 
 var (
-	errMissingCommand           = errors.New("image has no CMD and no command override was provided")
-	runnerStdin       io.Reader = os.Stdin
-	runnerStdout      io.Writer = os.Stdout
-	runnerStderr      io.Writer = os.Stderr
+	errMissingCommand               = errors.New("image has no CMD and no command override was provided")
+	errRuntimeUnsupported           = errors.New("mini-docker run requires Linux or WSL2")
+	runnerStdin           io.Reader = os.Stdin
+	runnerStdout          io.Writer = os.Stdout
+	runnerStderr          io.Writer = os.Stderr
 )
+
+type exitCodeCarrier struct {
+	code int
+	err  error
+}
+
+func (err *exitCodeCarrier) Error() string {
+	return err.err.Error()
+}
+
+func (err *exitCodeCarrier) Unwrap() error {
+	return err.err
+}
+
+func (err *exitCodeCarrier) ExitCode() int {
+	return err.code
+}
 
 type Runner struct {
 	store *image.Store
@@ -159,6 +177,13 @@ func runRootFS(ctx context.Context, config childConfig) error {
 	}
 
 	if err := command.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return &exitCodeCarrier{
+				code: exitErr.ExitCode(),
+				err:  fmt.Errorf("run container process: %w", err),
+			}
+		}
 		return fmt.Errorf("run container process: %w", err)
 	}
 	return nil

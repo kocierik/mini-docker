@@ -3,12 +3,11 @@
 package runtime
 
 import (
-	"fmt"
 	"os/exec"
 )
 
 func runtimeSupported() error {
-	return fmt.Errorf("mini-docker run requires Linux or WSL2")
+	return errRuntimeUnsupported
 }
 
 func childExecutablePath() string {

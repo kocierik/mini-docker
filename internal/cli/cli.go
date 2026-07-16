@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -51,6 +52,10 @@ func Run(args []string, stdout, stderr io.Writer, services Services) int {
 
 	if err == errUsage {
 		return 2
+	}
+	var exitErr interface{ ExitCode() int }
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
