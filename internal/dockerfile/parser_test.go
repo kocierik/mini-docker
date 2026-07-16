@@ -1,6 +1,7 @@
 package dockerfile
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -176,6 +177,9 @@ func TestSpeechDemoFixtureMatchesPlan(t *testing.T) {
 	scriptContents, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("ReadFile(hello.sh) error = %v", err)
+	}
+	if bytes.Contains(scriptContents, []byte("\r\n")) {
+		t.Fatal("hello.sh uses CRLF line endings; Linux shebang scripts require LF")
 	}
 
 	for _, wantLine := range []string{

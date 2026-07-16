@@ -30,9 +30,18 @@ Run these commands from the repository root:
 
 ```bash
 go build -o bin/mini-docker ./cmd/mini-docker
-sudo -E ./bin/mini-docker pull alpine:3.22
+./bin/mini-docker pull alpine:3.22
 sudo -E ./bin/mini-docker build -t hello:latest ./testdata/demo
 sudo -E ./bin/mini-docker run --hostname demo-box hello:latest
+```
+
+The long-running operations provide immediate lifecycle feedback:
+
+```text
+Pulling alpine:3.22...
+Pulled alpine:3.22
+Building hello:latest...
+Built hello:latest
 ```
 
 Expected run output includes these lines:
@@ -52,10 +61,12 @@ For a clean store during a presentation, set `MINI_DOCKER_HOME` to a temporary d
 
 ```bash
 export MINI_DOCKER_HOME="$(mktemp -d)"
-sudo -E ./bin/mini-docker pull alpine:3.22
+./bin/mini-docker pull alpine:3.22
 sudo -E ./bin/mini-docker build -t hello:latest ./testdata/demo
 sudo -E ./bin/mini-docker run --hostname demo-box hello:latest
 ```
+
+`pull` does not require root. `sudo -E` is needed for Dockerfile `RUN` during `build` and for `run`; `-E` preserves `MINI_DOCKER_HOME` so all three commands use the same image store.
 
 ## Local Image Store
 

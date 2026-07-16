@@ -62,7 +62,12 @@ func Prepare(args []string, stdout, stderr io.Writer) (Invocation, bool, int) {
 		}
 		image := args[1]
 		return Invocation{execute: func(services Services) error {
-			return services.Puller.Pull(ctx, image)
+			fmt.Fprintf(stdout, "Pulling %s...\n", image)
+			if err := services.Puller.Pull(ctx, image); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "Pulled %s\n", image)
+			return nil
 		}}, false, 0
 	case "build":
 		tag, buildContext, ok := parseBuildArgs(args[1:])
@@ -71,7 +76,12 @@ func Prepare(args []string, stdout, stderr io.Writer) (Invocation, bool, int) {
 			return Invocation{}, true, 2
 		}
 		return Invocation{execute: func(services Services) error {
-			return services.Builder.Build(ctx, tag, buildContext)
+			fmt.Fprintf(stdout, "Building %s...\n", tag)
+			if err := services.Builder.Build(ctx, tag, buildContext); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "Built %s\n", tag)
+			return nil
 		}}, false, 0
 	case "run":
 		image, config, ok := parseRunArgs(args[1:])

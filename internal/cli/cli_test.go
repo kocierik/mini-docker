@@ -59,8 +59,9 @@ func (err exitCodeError) ExitCode() int {
 func TestRunDispatchesPull(t *testing.T) {
 	puller := &fakePuller{}
 	services := Services{Puller: puller}
+	stdout := &strings.Builder{}
 
-	exitCode := Run([]string{"pull", "alpine:3.22"}, &strings.Builder{}, &strings.Builder{}, services)
+	exitCode := Run([]string{"pull", "alpine:3.22"}, stdout, &strings.Builder{}, services)
 
 	if exitCode != 0 {
 		t.Fatalf("Run() exit code = %d, want 0", exitCode)
@@ -68,13 +69,18 @@ func TestRunDispatchesPull(t *testing.T) {
 	if puller.image != "alpine:3.22" {
 		t.Fatalf("Pull() image = %q, want %q", puller.image, "alpine:3.22")
 	}
+	const want = "Pulling alpine:3.22...\nPulled alpine:3.22\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
 }
 
 func TestRunDispatchesBuild(t *testing.T) {
 	builder := &fakeBuilder{}
 	services := Services{Builder: builder}
+	stdout := &strings.Builder{}
 
-	exitCode := Run([]string{"build", "-t", "hello:latest", "./testdata/demo"}, &strings.Builder{}, &strings.Builder{}, services)
+	exitCode := Run([]string{"build", "-t", "hello:latest", "./testdata/demo"}, stdout, &strings.Builder{}, services)
 
 	if exitCode != 0 {
 		t.Fatalf("Run() exit code = %d, want 0", exitCode)
@@ -84,6 +90,10 @@ func TestRunDispatchesBuild(t *testing.T) {
 	}
 	if builder.context != "./testdata/demo" {
 		t.Errorf("Build() context = %q, want %q", builder.context, "./testdata/demo")
+	}
+	const want = "Building hello:latest...\nBuilt hello:latest\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
 }
 
@@ -200,16 +210,21 @@ func TestRunContainerUsageErrorsWriteOnlyPublicHelp(t *testing.T) {
 
 func TestRunReportsServiceError(t *testing.T) {
 	serviceErr := errors.New("pull failed")
+	stdout := &strings.Builder{}
 	stderr := &strings.Builder{}
 	services := Services{Puller: &fakePuller{err: serviceErr}}
 
-	exitCode := Run([]string{"pull", "alpine:3.22"}, &strings.Builder{}, stderr, services)
+	exitCode := Run([]string{"pull", "alpine:3.22"}, stdout, stderr, services)
 
 	if exitCode != 1 {
 		t.Fatalf("Run() exit code = %d, want 1", exitCode)
 	}
 	if stderr.String() != "pull failed\n" {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), "pull failed\n")
+	}
+	const wantStdout = "Pulling alpine:3.22...\n"
+	if stdout.String() != wantStdout {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), wantStdout)
 	}
 }
 
@@ -236,15 +251,22 @@ func TestRunReportsServiceErrorsForAllCommands(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			stdout := &strings.Builder{}
 			stderr := &strings.Builder{}
 
-			exitCode := Run(test.args, &strings.Builder{}, stderr, test.services)
+			exitCode := Run(test.args, stdout, stderr, test.services)
 
 			if exitCode != 1 {
 				t.Fatalf("Run() exit code = %d, want 1", exitCode)
 			}
 			if stderr.String() != test.wantErr {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), test.wantErr)
+			}
+			if test.name == "build" {
+				const wantStdout = "Building hello:latest...\n"
+				if stdout.String() != wantStdout {
+					t.Fatalf("stdout = %q, want %q", stdout.String(), wantStdout)
+				}
 			}
 		})
 	}
