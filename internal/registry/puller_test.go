@@ -25,7 +25,9 @@ func TestPullPublishesFlattenedImage(t *testing.T) {
 		return &v1.ConfigFile{Config: v1.Config{Cmd: []string{"/bin/demo"}}}, io.NopCloser(bytes.NewReader(makeTestTar(t,
 			tarEntry{header: tar.Header{Name: "bin", Typeflag: tar.TypeDir, Mode: 0o755}},
 			tarEntry{header: tar.Header{Name: "bin/demo", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("hello"))}, body: "hello"},
+			tarEntry{header: tar.Header{Name: "bin/busybox", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len("busybox"))}, body: "busybox"},
 			tarEntry{header: tar.Header{Name: "bin/demo-link", Typeflag: tar.TypeSymlink, Linkname: "demo"}},
+			tarEntry{header: tar.Header{Name: "bin/arch", Typeflag: tar.TypeSymlink, Linkname: "/bin/busybox"}},
 		))), nil
 	}
 
@@ -56,6 +58,13 @@ func TestPullPublishesFlattenedImage(t *testing.T) {
 	}
 	if linkTarget != "demo" {
 		t.Fatalf("symlink target = %q, want %q", linkTarget, "demo")
+	}
+	absoluteLinkTarget, err := os.Readlink(filepath.Join(got.RootFS, "bin", "arch"))
+	if err != nil {
+		t.Fatalf("Readlink(bin/arch) error = %v", err)
+	}
+	if absoluteLinkTarget != "/bin/busybox" {
+		t.Fatalf("absolute symlink target = %q, want %q", absoluteLinkTarget, "/bin/busybox")
 	}
 	if _, err := store.Get("alpine:3.22"); !errors.Is(err, image.ErrNotFound) {
 		t.Fatalf("Get(original reference) error = %v, want ErrNotFound", err)

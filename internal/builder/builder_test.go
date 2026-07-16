@@ -125,6 +125,34 @@ func TestBuildAppliesDockerfileSequentially(t *testing.T) {
 	}
 }
 
+func TestBuildResolvesNormalizedPulledBaseImage(t *testing.T) {
+	store := image.NewStore(filepath.Join(t.TempDir(), "store"))
+	baseRootFS := filepath.Join(t.TempDir(), "base-rootfs")
+	if err := os.MkdirAll(filepath.Join(baseRootFS, "bin"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(base rootfs) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseRootFS, "bin", "sh"), []byte("shell"), 0o755); err != nil {
+		t.Fatalf("WriteFile(base shell) error = %v", err)
+	}
+	if err := store.Put(context.Background(), "index.docker.io/library/alpine:3.22", baseRootFS, image.Metadata{Name: "index.docker.io/library/alpine:3.22", Command: []string{"/bin/sh"}}); err != nil {
+		t.Fatalf("store.Put(base) error = %v", err)
+	}
+
+	contextDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(contextDir, "Dockerfile"), []byte("FROM alpine:3.22\nCMD [\"/bin/sh\"]\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Dockerfile) error = %v", err)
+	}
+
+	builder := New(store, &fakeExecutor{})
+	if err := builder.Build(context.Background(), "hello:latest", contextDir); err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if _, err := store.Get("hello:latest"); err != nil {
+		t.Fatalf("store.Get(built image) error = %v", err)
+	}
+}
+
 func TestBuildMissingBaseImageGuidance(t *testing.T) {
 	store := image.NewStore(filepath.Join(t.TempDir(), "store"))
 	contextDir := t.TempDir()

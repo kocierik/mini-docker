@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/google/go-containerregistry/pkg/name"
+
 	"github.com/ekoci/mini-docker/internal/dockerfile"
 	"github.com/ekoci/mini-docker/internal/image"
 	"github.com/ekoci/mini-docker/internal/runtime"
@@ -43,7 +45,7 @@ func (builder *Builder) Build(ctx context.Context, tag, contextDir string) error
 		return fmt.Errorf("Dockerfile must begin with FROM")
 	}
 
-	baseImage, err := builder.store.Get(fromInstruction.Image)
+	baseImage, err := builder.resolveBaseImage(fromInstruction.Image)
 	if errors.Is(err, image.ErrNotFound) {
 		return fmt.Errorf("base image is not local; run: mini-docker pull %s", fromInstruction.Image)
 	}
@@ -99,6 +101,19 @@ func parseDockerfile(contextDir string) ([]dockerfile.Instruction, error) {
 		return nil, err
 	}
 	return instructions, nil
+}
+
+func (builder *Builder) resolveBaseImage(reference string) (image.Image, error) {
+	baseImage, err := builder.store.Get(reference)
+	if !errors.Is(err, image.ErrNotFound) {
+		return baseImage, err
+	}
+
+	parsedReference, parseErr := name.ParseReference(reference)
+	if parseErr != nil || parsedReference.Name() == reference {
+		return image.Image{}, err
+	}
+	return builder.store.Get(parsedReference.Name())
 }
 
 func cloneIntoBuildRoot(sourceRootFS string) (string, func(), error) {

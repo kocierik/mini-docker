@@ -195,6 +195,9 @@ func copyDirectoryContents(ctx context.Context, sourceDir *os.File, relativeDire
 		if err != nil {
 			return err
 		}
+		if !sameEntryType(entry, mode) {
+			return fmt.Errorf("source entry type changed during copy at %q", relativePath)
+		}
 		destinationPath := filepath.Join(destinationDirectory, entry.Name())
 
 		switch {
@@ -347,11 +350,28 @@ func readlinkAt(sourceDirFD int, name string) (string, error) {
 }
 
 func safeSymlinkTarget(linkPath, target string) bool {
+	if target == "" {
+		return false
+	}
 	if filepath.IsAbs(target) {
+		return true
+	}
+	if strings.Contains(target, `\\`) {
 		return false
 	}
 	resolved := filepath.Clean(filepath.Join(filepath.Dir(linkPath), target))
 	return resolved != ".." && !strings.HasPrefix(resolved, ".."+string(filepath.Separator))
+}
+
+func sameEntryType(entry fs.DirEntry, mode fs.FileMode) bool {
+	switch {
+	case entry.Type()&os.ModeSymlink != 0:
+		return mode&os.ModeSymlink != 0
+	case entry.IsDir():
+		return mode.IsDir()
+	default:
+		return mode.IsRegular()
+	}
 }
 
 func writeMetadata(path string, metadata Metadata) error {

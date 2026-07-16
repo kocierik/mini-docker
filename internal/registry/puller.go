@@ -273,8 +273,11 @@ func safeRootfsPath(rootfs, archivePath string) (string, error) {
 }
 
 func safeLinkTarget(linkPath, target string) bool {
-	if strings.Contains(target, `\`) || path.IsAbs(target) {
+	if target == "" || strings.Contains(target, `\`) {
 		return false
+	}
+	if path.IsAbs(target) {
+		return true
 	}
 	resolved := path.Clean(path.Join(path.Dir(linkPath), target))
 	return resolved != ".." && !strings.HasPrefix(resolved, "../")

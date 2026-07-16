@@ -303,7 +303,6 @@ func TestStorePutRejectsUnsafeSymlinks(t *testing.T) {
 		name   string
 		target string
 	}{
-		{name: "absolute", target: "/etc/passwd"},
 		{name: "escaping", target: "../../outside"},
 	}
 
@@ -325,6 +324,36 @@ func TestStorePutRejectsUnsafeSymlinks(t *testing.T) {
 				t.Fatalf("Get() after rejected Put error = %v, want ErrNotFound", err)
 			}
 		})
+	}
+}
+
+func TestStorePutPreservesAbsoluteSymlinksWithinRootFS(t *testing.T) {
+	sourceRootFS := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(sourceRootFS, "bin"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRootFS, "bin", "busybox"), []byte("busybox"), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink("/bin/busybox", filepath.Join(sourceRootFS, "bin", "arch")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	store := NewStore(t.TempDir())
+	if err := store.Put(context.Background(), "demo:latest", sourceRootFS, Metadata{Name: "demo:latest"}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	got, err := store.Get("demo:latest")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	linkTarget, err := os.Readlink(filepath.Join(got.RootFS, "bin", "arch"))
+	if err != nil {
+		t.Fatalf("Readlink() error = %v", err)
+	}
+	if linkTarget != "/bin/busybox" {
+		t.Fatalf("symlink target = %q, want %q", linkTarget, "/bin/busybox")
 	}
 }
 

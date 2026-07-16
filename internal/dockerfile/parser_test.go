@@ -1,6 +1,8 @@
 package dockerfile
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -145,5 +147,46 @@ func TestParseWrapsScannerFailuresWithLineNumber(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "token too long") {
 		t.Fatalf("Parse() error = %q, want substring %q", err.Error(), "token too long")
+	}
+}
+
+func TestSpeechDemoFixtureMatchesPlan(t *testing.T) {
+	dockerfilePath := filepath.Join("..", "..", "testdata", "demo", "Dockerfile")
+	dockerfileContents, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(Dockerfile) error = %v", err)
+	}
+
+	instructions, err := Parse(strings.NewReader(string(dockerfileContents)))
+	if err != nil {
+		t.Fatalf("Parse(demo Dockerfile) error = %v", err)
+	}
+
+	want := []Instruction{
+		From{Image: "alpine:3.22"},
+		Copy{Source: "hello.sh", Destination: "/hello.sh"},
+		Run{Command: "chmod +x /hello.sh"},
+		Cmd{Command: []string{"/hello.sh"}},
+	}
+	if !reflect.DeepEqual(instructions, want) {
+		t.Fatalf("Parse(demo Dockerfile) = %#v, want %#v", instructions, want)
+	}
+
+	scriptPath := filepath.Join("..", "..", "testdata", "demo", "hello.sh")
+	scriptContents, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("ReadFile(hello.sh) error = %v", err)
+	}
+
+	for _, wantLine := range []string{
+		"#!/bin/sh",
+		"hello from mini-docker",
+		"hostname: $(hostname)",
+		"pid: $$",
+		"root entries: $(ls / | tr '\\n' ' ')",
+	} {
+		if !strings.Contains(string(scriptContents), wantLine) {
+			t.Fatalf("hello.sh contents = %q, want substring %q", string(scriptContents), wantLine)
+		}
 	}
 }
