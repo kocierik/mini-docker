@@ -91,7 +91,7 @@ This is intentionally small and explicit so the runtime can be explained live in
 - No private registry authentication or image push
 - Dockerfile support is limited to one leading `FROM`, plus `COPY`, shell-form `RUN`, and JSON-array `CMD`
 - Builds are single-stage and have no cache
-- `FROM` must already exist in the local store before `build`
+- `FROM` must reference an image that has already been pulled into the local store; short Docker Hub names like `alpine:3.22` are resolved to the normalized pulled reference
 - No network namespace, cgroups, volumes, or overlay filesystem
 - No multi-platform support, process management commands, or full Docker CLI compatibility
 - Runtime verification requires Linux or WSL2 with sufficient privileges
