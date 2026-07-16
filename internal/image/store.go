@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	ociName "github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/sys/unix"
 )
 
@@ -137,6 +138,19 @@ func (store *Store) Get(name string) (Image, error) {
 		return Image{}, fmt.Errorf("image rootfs is not a directory")
 	}
 	return Image{RootFS: rootFS, Metadata: metadata}, nil
+}
+
+func (store *Store) Resolve(reference string) (Image, error) {
+	img, err := store.Get(reference)
+	if !errors.Is(err, ErrNotFound) {
+		return img, err
+	}
+
+	parsedReference, parseErr := ociName.ParseReference(reference)
+	if parseErr != nil || parsedReference.Name() == reference {
+		return Image{}, err
+	}
+	return store.Get(parsedReference.Name())
 }
 
 func copyRootFS(ctx context.Context, sourceRootFS, destinationRootFS string) error {

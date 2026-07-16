@@ -6,15 +6,35 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/ekoci/mini-docker/internal/image"
 )
+
+func TestRunRootFSRequiresRootPrivileges(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root user")
+	}
+
+	err := RunRootFS(context.Background(), Config{RootFS: t.TempDir(), Command: []string{"/bin/sh"}})
+	if !errors.Is(err, errRuntimePrivileges) {
+		t.Fatalf("RunRootFS() error = %v, want %v", err, errRuntimePrivileges)
+	}
+}
+
+func TestTranslateRuntimeProcessErrorMapsPermissionFailures(t *testing.T) {
+	err := translateRuntimeProcessError(&os.PathError{Op: "fork/exec", Path: "/proc/self/exe", Err: syscall.EPERM})
+	if !errors.Is(err, errRuntimePrivileges) {
+		t.Fatalf("translateRuntimeProcessError() error = %v, want %v", err, errRuntimePrivileges)
+	}
+}
 
 func TestRunnerCreatesIsolatedProcess(t *testing.T) {
 	if os.Geteuid() != 0 {

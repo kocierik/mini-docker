@@ -22,6 +22,7 @@ const (
 var (
 	errMissingCommand               = errors.New("image has no CMD and no command override was provided")
 	errRuntimeUnsupported           = errors.New("mini-docker run requires Linux or WSL2")
+	errRuntimePrivileges            = errors.New("insufficient privileges: mini-docker run and Dockerfile RUN require root")
 	runnerStdin           io.Reader = os.Stdin
 	runnerStdout          io.Writer = os.Stdout
 	runnerStderr          io.Writer = os.Stderr
@@ -63,13 +64,16 @@ func (runner *Runner) Run(ctx context.Context, imageName string, config Config) 
 		return err
 	}
 
-	img, err := runner.store.Get(imageName)
+	img, err := runner.resolveImage(imageName)
 	if err != nil {
 		return err
 	}
 
 	command, err := resolveCommand(img.Metadata, config)
 	if err != nil {
+		return err
+	}
+	if err := runtimePrivileges(); err != nil {
 		return err
 	}
 
@@ -86,6 +90,10 @@ func (runner *Runner) Run(ctx context.Context, imageName string, config Config) 
 	})
 }
 
+func (runner *Runner) resolveImage(name string) (image.Image, error) {
+	return runner.store.Resolve(name)
+}
+
 func RunRootFS(ctx context.Context, config Config) error {
 	if err := runtimeSupported(); err != nil {
 		return err
@@ -95,6 +103,9 @@ func RunRootFS(ctx context.Context, config Config) error {
 	}
 	if len(config.Command) == 0 {
 		return errMissingCommand
+	}
+	if err := runtimePrivileges(); err != nil {
+		return err
 	}
 
 	return runRootFS(ctx, childConfig{
@@ -184,7 +195,7 @@ func runRootFS(ctx context.Context, config childConfig) error {
 				err:  fmt.Errorf("run container process: %w", err),
 			}
 		}
-		return fmt.Errorf("run container process: %w", err)
+		return translateRuntimeProcessError(err)
 	}
 	return nil
 }

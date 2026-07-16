@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/google/go-containerregistry/pkg/name"
-
 	"github.com/ekoci/mini-docker/internal/dockerfile"
 	"github.com/ekoci/mini-docker/internal/image"
 	"github.com/ekoci/mini-docker/internal/runtime"
@@ -104,16 +102,7 @@ func parseDockerfile(contextDir string) ([]dockerfile.Instruction, error) {
 }
 
 func (builder *Builder) resolveBaseImage(reference string) (image.Image, error) {
-	baseImage, err := builder.store.Get(reference)
-	if !errors.Is(err, image.ErrNotFound) {
-		return baseImage, err
-	}
-
-	parsedReference, parseErr := name.ParseReference(reference)
-	if parseErr != nil || parsedReference.Name() == reference {
-		return image.Image{}, err
-	}
-	return builder.store.Get(parsedReference.Name())
+	return builder.store.Resolve(reference)
 }
 
 func cloneIntoBuildRoot(sourceRootFS string) (string, func(), error) {

@@ -1,6 +1,9 @@
 package runtime
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -40,6 +43,26 @@ func TestResolveCommandRejectsMissingCommand(t *testing.T) {
 	const want = "image has no CMD and no command override was provided"
 	if err.Error() != want {
 		t.Fatalf("resolveCommand error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestRunnerResolveImageMatchesNormalizedPulledReference(t *testing.T) {
+	store := image.NewStore(filepath.Join(t.TempDir(), "store"))
+	rootFS := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.MkdirAll(rootFS, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(rootfs) error = %v", err)
+	}
+	if err := store.Put(context.Background(), "index.docker.io/library/alpine:3.22", rootFS, image.Metadata{Name: "index.docker.io/library/alpine:3.22", Command: []string{"/bin/sh"}}); err != nil {
+		t.Fatalf("store.Put(normalized image) error = %v", err)
+	}
+
+	runner := NewRunner(store)
+	img, err := runner.resolveImage("alpine:3.22")
+	if err != nil {
+		t.Fatalf("runner.resolveImage returned error: %v", err)
+	}
+	if img.Metadata.Name != "index.docker.io/library/alpine:3.22" {
+		t.Fatalf("runner.resolveImage metadata name = %q, want %q", img.Metadata.Name, "index.docker.io/library/alpine:3.22")
 	}
 }
 
