@@ -24,6 +24,23 @@ func TestParseValidDockerfile(t *testing.T) {
 	}
 }
 
+func TestParseSkipsBlankAndCommentLines(t *testing.T) {
+	instructions, err := Parse(strings.NewReader("\n# base image\nFROM alpine:3.22\n\n# copy script\nCOPY hello.sh /hello.sh\nRUN chmod +x /hello.sh\n# entrypoint\nCMD [\"/hello.sh\"]\n"))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	want := []Instruction{
+		From{Image: "alpine:3.22"},
+		Copy{Source: "hello.sh", Destination: "/hello.sh"},
+		Run{Command: "chmod +x /hello.sh"},
+		Cmd{Command: []string{"/hello.sh"}},
+	}
+	if !reflect.DeepEqual(instructions, want) {
+		t.Fatalf("Parse() = %#v, want %#v", instructions, want)
+	}
+}
+
 func TestParseRejectsInvalidDockerfiles(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -41,6 +58,12 @@ func TestParseRejectsInvalidDockerfiles(t *testing.T) {
 			name:       "instruction before from",
 			dockerfile: "COPY hello.sh /hello.sh\nFROM alpine:3.22\n",
 			wantLine:   1,
+			wantErr:    "instruction before FROM",
+		},
+		{
+			name:       "instruction before from after skipped lines",
+			dockerfile: "\n# comment\n\nRUN echo hi\nFROM alpine:3.22\n",
+			wantLine:   4,
 			wantErr:    "instruction before FROM",
 		},
 		{
@@ -107,5 +130,20 @@ func TestParseRejectsInvalidDockerfiles(t *testing.T) {
 				t.Fatalf("Parse() error = %q, want substring %q", err.Error(), wantLine)
 			}
 		})
+	}
+}
+
+func TestParseWrapsScannerFailuresWithLineNumber(t *testing.T) {
+	longLine := "FROM " + strings.Repeat("a", 70*1024)
+
+	_, err := Parse(strings.NewReader("\n# comment\n" + longLine + "\n"))
+	if err == nil {
+		t.Fatal("Parse() error = nil, want failure")
+	}
+	if !strings.Contains(err.Error(), "line 3") {
+		t.Fatalf("Parse() error = %q, want substring %q", err.Error(), "line 3")
+	}
+	if !strings.Contains(err.Error(), "token too long") {
+		t.Fatalf("Parse() error = %q, want substring %q", err.Error(), "token too long")
 	}
 }

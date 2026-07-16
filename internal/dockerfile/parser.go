@@ -104,7 +104,7 @@ func Parse(reader io.Reader) ([]Instruction, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, lineError(lineNumber+1, err.Error())
 	}
 	if len(instructions) == 0 {
 		return nil, lineError(0, "empty Dockerfile")
