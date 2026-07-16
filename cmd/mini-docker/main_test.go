@@ -157,3 +157,42 @@ func TestRunProcessReportsServiceFactoryError(t *testing.T) {
 		t.Fatal("runProcess() called CLI after service factory error")
 	}
 }
+
+func TestRunProcessPrintsTopLevelHelpWithoutEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "help", args: []string{"help"}},
+		{name: "short flag", args: []string{"-h"}},
+		{name: "long flag", args: []string{"--help"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout := &strings.Builder{}
+			stderr := &strings.Builder{}
+
+			exitCode := runProcess(
+				test.args,
+				stdout,
+				stderr,
+				nil,
+				func([]string) (bool, int) { return false, 0 },
+				newServices,
+				cli.Run,
+			)
+
+			if exitCode != 0 {
+				t.Fatalf("runProcess() exit code = %d, want 0", exitCode)
+			}
+			const want = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
+			if stdout.String() != want {
+				t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty stderr", stderr.String())
+			}
+		})
+	}
+}

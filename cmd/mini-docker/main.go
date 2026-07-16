@@ -29,6 +29,9 @@ func runProcess(
 	if handled, exitCode := handleChild(args); handled {
 		return exitCode
 	}
+	if isTopLevelHelpRequest(args) {
+		return runCLI(args, stdout, stderr, cli.Services{})
+	}
 
 	services, err := buildServices(environ)
 	if err != nil {
@@ -51,6 +54,10 @@ func dispatchProcess(
 		return exitCode
 	}
 	return runCLI(args, stdout, stderr, services)
+}
+
+func isTopLevelHelpRequest(args []string) bool {
+	return len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help")
 }
 
 func newServices(environ []string) (cli.Services, error) {
