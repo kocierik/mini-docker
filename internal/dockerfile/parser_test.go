@@ -178,8 +178,8 @@ func TestSpeechDemoFixtureMatchesPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(hello.sh) error = %v", err)
 	}
-	if bytes.Contains(scriptContents, []byte("\r\n")) {
-		t.Fatal("hello.sh uses CRLF line endings; Linux shebang scripts require LF")
+	if bytes.ContainsRune(scriptContents, '\r') {
+		t.Fatal("hello.sh contains carriage returns; Linux shebang scripts require LF-only line endings")
 	}
 
 	for _, wantLine := range []string{

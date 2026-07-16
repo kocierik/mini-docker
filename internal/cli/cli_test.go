@@ -11,12 +11,16 @@ import (
 )
 
 type fakePuller struct {
-	image string
-	err   error
+	image  string
+	err    error
+	pullFn func() error
 }
 
 func (fake *fakePuller) Pull(_ context.Context, image string) error {
 	fake.image = image
+	if fake.pullFn != nil {
+		return fake.pullFn()
+	}
 	return fake.err
 }
 
@@ -24,11 +28,15 @@ type fakeBuilder struct {
 	tag     string
 	context string
 	err     error
+	buildFn func() error
 }
 
 func (fake *fakeBuilder) Build(_ context.Context, tag, buildContext string) error {
 	fake.tag = tag
 	fake.context = buildContext
+	if fake.buildFn != nil {
+		return fake.buildFn()
+	}
 	return fake.err
 }
 
@@ -57,9 +65,15 @@ func (err exitCodeError) ExitCode() int {
 }
 
 func TestRunDispatchesPull(t *testing.T) {
-	puller := &fakePuller{}
-	services := Services{Puller: puller}
 	stdout := &strings.Builder{}
+	puller := &fakePuller{pullFn: func() error {
+		const want = "Pulling alpine:3.22...\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout at Pull() = %q, want %q", stdout.String(), want)
+		}
+		return nil
+	}}
+	services := Services{Puller: puller}
 
 	exitCode := Run([]string{"pull", "alpine:3.22"}, stdout, &strings.Builder{}, services)
 
@@ -76,9 +90,15 @@ func TestRunDispatchesPull(t *testing.T) {
 }
 
 func TestRunDispatchesBuild(t *testing.T) {
-	builder := &fakeBuilder{}
-	services := Services{Builder: builder}
 	stdout := &strings.Builder{}
+	builder := &fakeBuilder{buildFn: func() error {
+		const want = "Building hello:latest...\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout at Build() = %q, want %q", stdout.String(), want)
+		}
+		return nil
+	}}
+	services := Services{Builder: builder}
 
 	exitCode := Run([]string{"build", "-t", "hello:latest", "./testdata/demo"}, stdout, &strings.Builder{}, services)
 
@@ -100,8 +120,9 @@ func TestRunDispatchesBuild(t *testing.T) {
 func TestRunDispatchesRun(t *testing.T) {
 	runner := &fakeRunner{}
 	services := Services{Runner: runner}
+	stdout := &strings.Builder{}
 
-	exitCode := Run([]string{"run", "--hostname", "demo-box", "hello:latest", "/bin/echo", "hello"}, &strings.Builder{}, &strings.Builder{}, services)
+	exitCode := Run([]string{"run", "--hostname", "demo-box", "hello:latest", "/bin/echo", "hello"}, stdout, &strings.Builder{}, services)
 
 	if exitCode != 0 {
 		t.Fatalf("Run() exit code = %d, want 0", exitCode)
@@ -112,6 +133,9 @@ func TestRunDispatchesRun(t *testing.T) {
 	wantConfig := runtime.Config{Hostname: "demo-box", Command: []string{"/bin/echo", "hello"}}
 	if !reflect.DeepEqual(runner.config, wantConfig) {
 		t.Errorf("Run() config = %#v, want %#v", runner.config, wantConfig)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty stdout", stdout.String())
 	}
 }
 
@@ -267,6 +291,8 @@ func TestRunReportsServiceErrorsForAllCommands(t *testing.T) {
 				if stdout.String() != wantStdout {
 					t.Fatalf("stdout = %q, want %q", stdout.String(), wantStdout)
 				}
+			} else if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty stdout", stdout.String())
 			}
 		})
 	}
