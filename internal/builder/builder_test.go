@@ -13,6 +13,43 @@ import (
 	"github.com/ekoci/mini-docker/internal/image"
 )
 
+func TestCloneIntoBuildRootPreservesSpecialModeBits(t *testing.T) {
+	sourceRootFS := t.TempDir()
+	stickyDir := filepath.Join(sourceRootFS, "tmp")
+	if err := os.Mkdir(stickyDir, 0o755); err != nil {
+		t.Fatalf("Mkdir(sticky dir) error = %v", err)
+	}
+	if err := syscall.Chmod(stickyDir, 0o3755); err != nil {
+		t.Fatalf("Chmod(sticky dir) error = %v", err)
+	}
+
+	setIDFile := filepath.Join(sourceRootFS, "usr", "local", "bin", "helper")
+	if err := os.MkdirAll(filepath.Dir(setIDFile), 0o755); err != nil {
+		t.Fatalf("MkdirAll(file parent) error = %v", err)
+	}
+	if err := os.WriteFile(setIDFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(setid file) error = %v", err)
+	}
+	if err := syscall.Chmod(setIDFile, 0o6755); err != nil {
+		t.Fatalf("Chmod(setid file) error = %v", err)
+	}
+
+	assertUnixModePreserved(t, stickyDir, 0o7777, 0o3755)
+	assertUnixModePreserved(t, setIDFile, 0o7777, 0o6755)
+
+	buildRootFS, cleanup, err := cloneIntoBuildRoot(sourceRootFS)
+	if err != nil {
+		t.Fatalf("cloneIntoBuildRoot() error = %v", err)
+	}
+	defer cleanup()
+
+	clonedStickyDir := filepath.Join(buildRootFS, "tmp")
+	assertUnixModePreserved(t, clonedStickyDir, 0o7777, 0o3755)
+
+	clonedSetIDFile := filepath.Join(buildRootFS, "usr", "local", "bin", "helper")
+	assertUnixModePreserved(t, clonedSetIDFile, 0o7777, 0o6755)
+}
+
 func TestBuildAppliesDockerfileSequentially(t *testing.T) {
 	store := image.NewStore(filepath.Join(t.TempDir(), "store"))
 	baseRootFS := filepath.Join(t.TempDir(), "base-rootfs")
@@ -284,5 +321,17 @@ func TestCopyRejectsUnsafePathsAndFileTypes(t *testing.T) {
 
 	if _, err := os.Stat(rootfsEscapeTarget); !os.IsNotExist(err) {
 		t.Fatalf("rootfs escape target was modified: Stat error = %v", err)
+	}
+}
+
+func assertUnixModePreserved(t *testing.T, path string, mask, want uint32) {
+	t.Helper()
+
+	var stat syscall.Stat_t
+	if err := syscall.Stat(path, &stat); err != nil {
+		t.Fatalf("Stat(%s) error = %v", path, err)
+	}
+	if got := stat.Mode & mask; got != want {
+		t.Fatalf("mode(%s) = %o, want %o", path, got, want)
 	}
 }

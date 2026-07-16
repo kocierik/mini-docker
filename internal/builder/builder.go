@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/ekoci/mini-docker/internal/dockerfile"
 	"github.com/ekoci/mini-docker/internal/image"
@@ -128,24 +129,30 @@ func copyTree(sourceRoot, destinationRoot string) error {
 			return err
 		}
 		if relativePath == "." {
-			info, err := entry.Info()
+			_, rawMode, err := fileModeAndRawModeAtPath(path)
 			if err != nil {
 				return err
 			}
-			return os.MkdirAll(destinationRoot, info.Mode().Perm())
+			if err := os.MkdirAll(destinationRoot, 0o700); err != nil {
+				return err
+			}
+			return syscall.Chmod(destinationRoot, rawMode)
 		}
 
 		destinationPath := filepath.Join(destinationRoot, relativePath)
-		info, err := entry.Info()
+		mode, rawMode, err := fileModeAndRawModeAtPath(path)
 		if err != nil {
 			return err
 		}
 
-		switch mode := info.Mode(); {
+		switch {
 		case mode.IsDir():
-			return os.MkdirAll(destinationPath, mode.Perm())
+			if err := os.MkdirAll(destinationPath, 0o700); err != nil {
+				return err
+			}
+			return syscall.Chmod(destinationPath, rawMode)
 		case mode.IsRegular():
-			return copyTreeRegularFile(path, destinationPath, mode)
+			return copyTreeRegularFile(path, destinationPath, rawMode)
 		case mode&os.ModeSymlink != 0:
 			target, err := os.Readlink(path)
 			if err != nil {
@@ -161,7 +168,7 @@ func copyTree(sourceRoot, destinationRoot string) error {
 	})
 }
 
-func copyTreeRegularFile(sourcePath, destinationPath string, mode fs.FileMode) error {
+func copyTreeRegularFile(sourcePath, destinationPath string, rawMode uint32) error {
 	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 		return err
 	}
@@ -172,7 +179,7 @@ func copyTreeRegularFile(sourcePath, destinationPath string, mode fs.FileMode) e
 	}
 	defer sourceFile.Close()
 
-	destinationFile, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode.Perm())
+	destinationFile, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, fs.FileMode(rawMode&0o777))
 	if err != nil {
 		return err
 	}
@@ -184,5 +191,43 @@ func copyTreeRegularFile(sourcePath, destinationPath string, mode fs.FileMode) e
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Chmod(destinationPath, mode.Perm())
+	return syscall.Chmod(destinationPath, rawMode)
+}
+
+func fileModeAndRawModeAtPath(path string) (fs.FileMode, uint32, error) {
+	var stat syscall.Stat_t
+	if err := syscall.Lstat(path, &stat); err != nil {
+		return 0, 0, err
+	}
+	return fileModeFromStat(stat), stat.Mode & 0o7777, nil
+}
+
+func fileModeFromStat(stat syscall.Stat_t) fs.FileMode {
+	mode := fs.FileMode(stat.Mode & 0o777)
+	if stat.Mode&syscall.S_ISUID != 0 {
+		mode |= os.ModeSetuid
+	}
+	if stat.Mode&syscall.S_ISGID != 0 {
+		mode |= os.ModeSetgid
+	}
+	if stat.Mode&syscall.S_ISVTX != 0 {
+		mode |= os.ModeSticky
+	}
+
+	switch stat.Mode & syscall.S_IFMT {
+	case syscall.S_IFDIR:
+		mode |= os.ModeDir
+	case syscall.S_IFLNK:
+		mode |= os.ModeSymlink
+	case syscall.S_IFBLK:
+		mode |= os.ModeDevice
+	case syscall.S_IFCHR:
+		mode |= os.ModeDevice | os.ModeCharDevice
+	case syscall.S_IFIFO:
+		mode |= os.ModeNamedPipe
+	case syscall.S_IFSOCK:
+		mode |= os.ModeSocket
+	}
+
+	return mode
 }
