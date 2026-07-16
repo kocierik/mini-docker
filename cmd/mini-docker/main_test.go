@@ -1,0 +1,92 @@
+package main
+
+import (
+	"io"
+	"strings"
+	"testing"
+
+	"github.com/ekoci/mini-docker/internal/cli"
+)
+
+func TestResolveStoreRootUsesMiniDockerHome(t *testing.T) {
+	storeRoot, err := resolveStoreRoot(map[string]string{
+		"MINI_DOCKER_HOME": "/tmp/custom-store",
+		"HOME":             "/home/erik",
+	})
+	if err != nil {
+		t.Fatalf("resolveStoreRoot() error = %v", err)
+	}
+	if storeRoot != "/tmp/custom-store" {
+		t.Fatalf("resolveStoreRoot() = %q, want %q", storeRoot, "/tmp/custom-store")
+	}
+}
+
+func TestResolveStoreRootDefaultsUnderHome(t *testing.T) {
+	storeRoot, err := resolveStoreRoot(map[string]string{"HOME": "/home/erik"})
+	if err != nil {
+		t.Fatalf("resolveStoreRoot() error = %v", err)
+	}
+	if storeRoot != "/home/erik/.mini-docker/images" {
+		t.Fatalf("resolveStoreRoot() = %q, want %q", storeRoot, "/home/erik/.mini-docker/images")
+	}
+}
+
+func TestDispatchProcessHandlesInternalChildBeforeCLI(t *testing.T) {
+	cliCalled := false
+	exitCode := dispatchProcess(
+		[]string{"__child"},
+		io.Discard,
+		io.Discard,
+		func(args []string) (bool, int) {
+			if len(args) != 1 || args[0] != "__child" {
+				t.Fatalf("child handler args = %#v, want __child", args)
+			}
+			return true, 23
+		},
+		func([]string, io.Writer, io.Writer, cli.Services) int {
+			cliCalled = true
+			return 0
+		},
+		cli.Services{},
+	)
+
+	if exitCode != 23 {
+		t.Fatalf("dispatchProcess() exit code = %d, want 23", exitCode)
+	}
+	if cliCalled {
+		t.Fatal("dispatchProcess() called CLI after internal child was handled")
+	}
+}
+
+func TestDispatchProcessForwardsPublicArgsToCLI(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+	services := cli.Services{}
+
+	exitCode := dispatchProcess(
+		[]string{"pull", "alpine:3.22"},
+		stdout,
+		stderr,
+		func([]string) (bool, int) { return false, 0 },
+		func(args []string, gotStdout, gotStderr io.Writer, gotServices cli.Services) int {
+			if len(args) != 2 || args[0] != "pull" || args[1] != "alpine:3.22" {
+				t.Fatalf("CLI args = %#v, want pull alpine:3.22", args)
+			}
+			if gotStdout != stdout {
+				t.Fatal("dispatchProcess() did not forward stdout")
+			}
+			if gotStderr != stderr {
+				t.Fatal("dispatchProcess() did not forward stderr")
+			}
+			if gotServices != services {
+				t.Fatal("dispatchProcess() did not forward services")
+			}
+			return 7
+		},
+		services,
+	)
+
+	if exitCode != 7 {
+		t.Fatalf("dispatchProcess() exit code = %d, want 7", exitCode)
+	}
+}

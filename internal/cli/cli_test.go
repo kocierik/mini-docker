@@ -126,6 +126,42 @@ func TestRunReturnsUsageError(t *testing.T) {
 	}
 }
 
+func TestRunWritesPublicHelp(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+
+	exitCode := Run([]string{"help"}, stdout, stderr, Services{})
+
+	if exitCode != 0 {
+		t.Fatalf("Run() exit code = %d, want 0", exitCode)
+	}
+	const want = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty stderr", stderr.String())
+	}
+}
+
+func TestRunWritesUsageHelpForUsageErrors(t *testing.T) {
+	stdout := &strings.Builder{}
+	stderr := &strings.Builder{}
+
+	exitCode := Run(nil, stdout, stderr, Services{})
+
+	if exitCode != 2 {
+		t.Fatalf("Run() exit code = %d, want 2", exitCode)
+	}
+	const want = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty stdout", stdout.String())
+	}
+}
+
 func TestRunReportsServiceError(t *testing.T) {
 	serviceErr := errors.New("pull failed")
 	stderr := &strings.Builder{}
@@ -138,6 +174,43 @@ func TestRunReportsServiceError(t *testing.T) {
 	}
 	if stderr.String() != "pull failed\n" {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), "pull failed\n")
+	}
+}
+
+func TestRunReportsServiceErrorsForAllCommands(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		services Services
+		wantErr  string
+	}{
+		{
+			name:     "build",
+			args:     []string{"build", "-t", "hello:latest", "./testdata/demo"},
+			services: Services{Builder: &fakeBuilder{err: errors.New("build failed")}},
+			wantErr:  "build failed\n",
+		},
+		{
+			name:     "run",
+			args:     []string{"run", "hello:latest", "/bin/echo", "hello"},
+			services: Services{Runner: &fakeRunner{err: errors.New("run failed")}},
+			wantErr:  "run failed\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stderr := &strings.Builder{}
+
+			exitCode := Run(test.args, &strings.Builder{}, stderr, test.services)
+
+			if exitCode != 1 {
+				t.Fatalf("Run() exit code = %d, want 1", exitCode)
+			}
+			if stderr.String() != test.wantErr {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), test.wantErr)
+			}
+		})
 	}
 }
 

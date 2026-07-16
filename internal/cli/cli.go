@@ -28,9 +28,16 @@ type Services struct {
 	Runner  Runner
 }
 
+const publicHelp = "mini-docker pull <image>\nmini-docker build -t <image> <context>\nmini-docker run [--hostname <name>] <image> [command] [args...]\n"
+
 func Run(args []string, stdout, stderr io.Writer, services Services) int {
 	if len(args) == 0 {
+		writeHelp(stderr)
 		return 2
+	}
+	if isHelpRequest(args) {
+		writeHelp(stdout)
+		return 0
 	}
 
 	ctx := context.Background()
@@ -39,6 +46,7 @@ func Run(args []string, stdout, stderr io.Writer, services Services) int {
 	switch args[0] {
 	case "pull":
 		if len(args) != 2 {
+			writeHelp(stderr)
 			return 2
 		}
 		err = services.Puller.Pull(ctx, args[1])
@@ -47,6 +55,7 @@ func Run(args []string, stdout, stderr io.Writer, services Services) int {
 	case "run":
 		err = runContainer(ctx, args[1:], stderr, services.Runner)
 	default:
+		writeHelp(stderr)
 		return 2
 	}
 
@@ -62,6 +71,14 @@ func Run(args []string, stdout, stderr io.Writer, services Services) int {
 		return 1
 	}
 	return 0
+}
+
+func isHelpRequest(args []string) bool {
+	return len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help")
+}
+
+func writeHelp(writer io.Writer) {
+	_, _ = io.WriteString(writer, publicHelp)
 }
 
 var errUsage = fmt.Errorf("usage error")
