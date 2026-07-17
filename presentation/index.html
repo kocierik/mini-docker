@@ -181,8 +181,22 @@ return nil</code></pre>
           <p class="takeaway">Same process identity. New program image.</p>
           <aside class="notes">21:00-24:00. Explain replacement, not spawning. The payload keeps the process identity that is PID 1 inside the new PID namespace. Connect hostname to UTS, pid 1 to the PID namespace, and /proc/root entries to mount namespace plus chroot. Transition: “Now let the real program prove every claim.”</aside>
         </section>
-        <section data-slide="demo"><h2>Live demo</h2></section>
-        <section data-slide="docker-adds"><h2>What Docker adds</h2></section>
+        <section data-slide="demo">
+          <p class="eyebrow proof">LIVE · 24:00-28:00</p>
+          <h2>From Alpine to isolated PID 1.</h2>
+          <div class="terminal demo-commands"><span class="prompt">$</span> export MINI_DOCKER_HOME="$(mktemp -d)"<br><span class="prompt">$</span> ./bin/mini-docker pull alpine:3.22<br><span class="prompt">$</span> sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo<br><span class="prompt">$</span> sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest</div>
+          <p class="takeaway">Switch to the terminal now. Return only for fallback or closing.</p>
+          <aside class="notes">24:00-28:00. Use the runbook. Pause before Enter on run and ask what the process should observe. After ten seconds without useful progress, show the captured output and continue; do not debug.</aside>
+        </section>
+
+        <section data-slide="docker-adds">
+          <p class="eyebrow proof">THE MINIMAL ANSWER</p>
+          <h2>Images prepare files. Linux isolates the process.</h2>
+          <div class="core-answer"><b>image + rootfs</b><b>namespaces + chroot</b><b>private /proc + exec</b></div>
+          <div class="docker-adds fragment"><span>cgroups</span><span>networking</span><span>layer storage</span><span>volumes</span><span>security hardening</span><span>distribution</span><span>orchestration</span></div>
+          <p class="warning">This project demonstrates the mechanism. It is not a secure, production-ready container engine.</p>
+          <aside class="notes">28:00-30:00. Close exactly: “An image and rootfs, Linux namespaces, a changed root, a private /proc, and exec are enough to demonstrate the core runtime idea. Docker adds the production system around it.” Invite questions only after the close.</aside>
+        </section>
       </div>
     </div>
     <script type="module" src="/main.js"></script>

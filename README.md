@@ -30,9 +30,10 @@ Run these commands from the repository root:
 
 ```bash
 go build -o bin/mini-docker ./cmd/mini-docker
+export MINI_DOCKER_HOME="$(mktemp -d)"
 ./bin/mini-docker pull alpine:3.22
-sudo -E ./bin/mini-docker build -t hello:latest ./testdata/demo
-sudo -E ./bin/mini-docker run --hostname demo-box hello:latest
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
 ```
 
 The long-running operations provide immediate lifecycle feedback:
@@ -57,16 +58,16 @@ root entries: bin dev etc hello.sh lib proc tmp usr ...
 
 ## Fresh End-To-End Demo
 
-For a clean store during a presentation, set `MINI_DOCKER_HOME` to a temporary directory and preserve it through `sudo -E`:
+For a clean store during a presentation, set `MINI_DOCKER_HOME` to a temporary directory:
 
 ```bash
 export MINI_DOCKER_HOME="$(mktemp -d)"
 ./bin/mini-docker pull alpine:3.22
-sudo -E ./bin/mini-docker build -t hello:latest ./testdata/demo
-sudo -E ./bin/mini-docker run --hostname demo-box hello:latest
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
 ```
 
-`pull` does not require root. `sudo -E` is needed for Dockerfile `RUN` during `build` and for `run`; `-E` preserves `MINI_DOCKER_HOME` so all three commands use the same image store.
+`pull` does not require root. Dockerfile `RUN` during `build` and every `run` require root. Passing `MINI_DOCKER_HOME` through `sudo env` ensures that all three commands use the same image store without preserving unrelated environment variables.
 
 ## Local Image Store
 

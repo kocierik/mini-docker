@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { expect, test } from '@playwright/test';
 
 test('loads the ten-slide offline deck', async ({ page }) => {
@@ -99,4 +101,18 @@ test('connects runtime primitives to observable proof', async ({ page }) => {
   await expect(pidOneSlide).toContainText('PID 1 inside the new PID namespace');
 
   await expect(page.getByText(/CODE MOMENT \d{2}/)).toHaveCount(4);
+});
+
+test('packages notes and a consistent demo fallback', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.reveal .slides > section aside.notes')).toHaveCount(10);
+
+  const notes = await readFile('presentation/notes.md', 'utf8');
+  const demo = await readFile('presentation/demo.md', 'utf8');
+  const fallback = await readFile('presentation/assets/demo-output.txt', 'utf8');
+
+  expect(notes.match(/^## Slide /gm)).toHaveLength(10);
+  expect(demo).toContain('sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME"');
+  expect(fallback).toContain('hostname: demo-box');
+  expect(fallback).toContain('pid: 1');
 });

@@ -1,0 +1,11 @@
+$ ./bin/mini-docker pull alpine:3.22
+Pulling alpine:3.22...
+Pulled alpine:3.22
+$ sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
+Building hello:latest...
+Built hello:latest
+$ sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
+hello from mini-docker
+hostname: demo-box
+pid: 1
+root entries: bin dev etc hello.sh lib proc tmp usr ...
