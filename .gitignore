@@ -4,5 +4,6 @@
 .mini-docker/
 /node_modules/
 /dist/
+/dist/presentation/build-your-own-docker.pdf
 /test-results/
 /playwright-report/

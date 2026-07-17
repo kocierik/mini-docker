@@ -159,3 +159,32 @@ test('packages notes and a consistent demo fallback', async ({ page }) => {
   expect(fallback).toContain('hostname: demo-box');
   expect(fallback).toContain('pid: 1');
 });
+
+for (const viewport of [
+  { name: 'full-hd', width: 1920, height: 1080 },
+  { name: 'projector', width: 1366, height: 768 },
+]) {
+  test(`fits every slide at ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+
+    const slideCount = await page.locator('.reveal .slides > section').count();
+    for (let index = 0; index < slideCount; index += 1) {
+      await page.evaluate((slideIndex) => window.presentationDeck.slide(slideIndex), index);
+      const overflow = await page.locator('.reveal .slides > section.present').evaluate((slide) => ({
+        horizontal: slide.scrollWidth > slide.clientWidth + 2,
+        vertical: slide.scrollHeight > slide.clientHeight + 2,
+      }));
+      expect(overflow, `slide ${index + 1}`).toEqual({ horizontal: false, vertical: false });
+    }
+  });
+}
+
+test('reveals all fragments without changing slide', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => window.presentationDeck.slide(2));
+  const slideBefore = await page.evaluate(() => window.presentationDeck.getIndices().h);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('[data-slide="pull"] .fragment.visible')).toHaveCount(1);
+  expect(await page.evaluate(() => window.presentationDeck.getIndices().h)).toBe(slideBefore);
+});
