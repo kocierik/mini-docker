@@ -50,9 +50,9 @@
                 return fmt.Errorf("extract image: %w", err)
             }
 
-            metadata := image.Metadata{
-                Name:    parsedReference.Name(),
-                Command: slices.Clone(configFile.Config.Cmd),
+            metadata := image.Metadata{Name: parsedReference.Name(), Command: slices.Clone(configFile.Config.Cmd)}
+            if err := puller.store.Put(ctx, parsedReference.Name(), rootfs, metadata); err != nil {
+              return fmt.Errorf("publish image: %w", err)
             }
           </code></pre>
           <p class="source">internal/registry/puller.go · (*Puller).Pull</p>

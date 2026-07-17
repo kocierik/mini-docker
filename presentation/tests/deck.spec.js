@@ -90,7 +90,8 @@ test('teaches pull and build with real source references', async ({ page }) => {
   await expect.soft(pullCode).toContainText('if err := extractRootFS(rootfs, archive); err != nil');
   await expect.soft(pullCode).toContainText('return fmt.Errorf("extract image: %w", err)');
   await expect.soft(pullCode).toContainText('metadata := image.Metadata{');
-  await expect.soft(pullCode).not.toContainText('return puller.store.Put');
+  await expect.soft(pullCode).toContainText('if err := puller.store.Put(ctx, parsedReference.Name(), rootfs, metadata); err != nil');
+  await expect.soft(pullCode).toContainText('return fmt.Errorf("publish image: %w", err)');
 
   const buildSlide = page.locator('[data-slide="build"]');
   const buildCode = buildSlide.locator('code.language-go');
