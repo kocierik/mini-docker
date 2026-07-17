@@ -1,0 +1,16 @@
+:root {
+  --ink: #edf4ef;
+  --muted: #9caaa1;
+  --surface: #101713;
+  --surface-raised: #18211c;
+  --proof: #79dfa5;
+  --data: #86b7d9;
+  --runtime: #e7cf78;
+}
+
+body { background: var(--surface); }
+.reveal { color: var(--ink); font-family: "IBM Plex Sans Condensed", sans-serif; }
+.reveal .slides { text-align: left; }
+.reveal .slides > section { box-sizing: border-box; height: 100%; padding: 56px 64px; }
+.reveal h1, .reveal h2, .reveal h3 { color: var(--ink); font-family: inherit; letter-spacing: 0; text-transform: none; }
+.reveal code, .reveal pre, .terminal { font-family: "IBM Plex Mono", monospace; }

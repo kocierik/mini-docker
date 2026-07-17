@@ -2,3 +2,7 @@
 /.superpowers/
 /bin/
 .mini-docker/
+/node_modules/
+/dist/
+/test-results/
+/playwright-report/
