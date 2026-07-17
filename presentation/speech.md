@@ -120,3 +120,203 @@ At this point the preparation side is complete. We have the two inputs shown at 
 Now we have the two inputs: a rootfs and a command.
 
 [NEXT SLIDE]
+
+## Slide 5 - What must run change? (3 minutes)
+
+Before reading the runtime code, let us define what success means from the process's point of view.
+
+[POINT TO HOSTNAME]
+
+First, the process must observe the hostname `demo-box`, while the host keeps its own hostname. That is a promise about the system identity visible to this process.
+
+[POINT TO PROCESS ID]
+
+Second, the process must observe its own process ID as 1. That does not mean it has host PID 1. It means PID 1 inside a different process-ID view.
+
+[POINT TO FILESYSTEM ROOT]
+
+Third, when the process opens `/`, it must reach the image rootfs rather than the host's root directory. `/hello.sh` must name the file added during Build, and ordinary absolute paths must resolve inside that prepared tree.
+
+[POINT TO PROCESS VIEW]
+
+Fourth, `/proc` must describe processes from the new PID view. Merely carrying the host's existing `/proc` into another directory tree would contradict the PID promise, because the files under `/proc` would still expose the wrong process view.
+
+These are four observable promises: a hostname, a process ID, a filesystem root, and a process view. They are different views presented to one ordinary Linux process. They are not evidence of a guest kernel booting somewhere. The process still uses the host Linux kernel; the kernel changes what that process can observe.
+
+There is no single `container` syscall that produces all four results. We need separate mechanisms with separate jobs. A UTS namespace can isolate the hostname. A PID namespace can isolate process IDs. A mount namespace can isolate mount operations. `chroot` can change pathname resolution. A new proc filesystem can report the process view from inside those namespaces.
+
+That list is not yet an execution plan. In particular, some views must exist when the child is created, while the filesystem setup must happen inside that child afterward. The code therefore needs a boundary: create a child with the namespace memberships first, then let that child assemble the world the payload will inherit.
+
+Those views begin at process creation.
+
+[NEXT SLIDE]
+
+## Slide 6 - Create the boundary before entering it (4 minutes)
+
+[POINT TO PROCESS FLOW]
+
+Start with the process flow, before the code. The host CLI does not turn itself directly into `/hello.sh`. It starts another copy of the mini-docker executable. That child performs the privileged bootstrap work, and only after the environment is ready does it become the payload.
+
+Why launch the same executable again? The namespace flags are applied when this child process is created. Re-executing mini-docker gives the new child a known entry point that can run the setup code from inside those new namespace views. It also leaves the original CLI outside, where it can wait for the child and return its exit status.
+
+On Linux, `childExecutablePath()` returns `/proc/self/exe`. That path resolves to the executable for the currently running mini-docker process. The parent can therefore start the same binary without depending on the command name or the path used to invoke it.
+
+The argument `__child` selects an internal child mode. The rootfs path, requested hostname, and command are encoded as JSON and carried in the `MINI_DOCKER_CHILD_CONFIG` environment variable. When the new mini-docker process starts, `HandleInternalChild` recognizes that private argument, decodes the configuration, and calls the child setup path. This is configuration transport between the parent and its bootstrap child, not image metadata and not an extra container process.
+
+[CLICK]
+
+[POINT TO NAMESPACE KEY]
+
+Now reveal the three namespace choices. `CLONE_NEWPID` gives the child a new process-ID namespace. The child is the first process in that namespace, so it observes itself as PID 1 there; it still has a different PID when viewed from the host. `CLONE_NEWUTS` gives it a separate UTS namespace, where changing the hostname does not rename the host. `CLONE_NEWNS` creates a separate mount namespace, so the child's mount operations can change its mount view without changing the host's mount namespace.
+
+These flags do not set the hostname, change the root, or mount `/proc` by themselves. They establish the boundaries in which the child can do those things. Namespace membership therefore exists before `chroot`; `chroot` is not what creates a namespace.
+
+[CLICK]
+
+[POINT TO LEFT CODE EXCERPT]
+
+The first source excerpt is the parent side in `runRootFS`. `exec.CommandContext` prepares a child command using `/proc/self/exe` and the internal argument. Standard input, output, and error are connected to the current terminal, which is why the payload can behave like the command we launched. The environment carries the encoded child configuration.
+
+[POINT TO RIGHT CODE EXCERPT]
+
+The second excerpt is the Linux-specific creation policy. `SysProcAttr.Cloneflags` combines exactly the PID, UTS, and mount namespace flags we just named. When `command.Run` starts the child, the kernel creates it with those namespace memberships. The parent has now created the boundary, but the child's filesystem view is not ready yet.
+
+The child exists; now it must construct its view.
+
+[NEXT SLIDE]
+
+## Slide 7 - Assemble the child's world (4 minutes)
+
+The child setup is order-sensitive. Each operation prepares an assumption used by the next one, so let us follow the first fragment from top to bottom.
+
+[POINT TO EXACT FRAGMENT 1]
+
+First, the child recursively changes mount propagation at `/` to private with `MS_REC | MS_PRIVATE`. A mount namespace gives this child a separate mount view, and private propagation prevents later mount events in this tree from propagating back through shared mount relationships. That must happen before the child mounts its own `/proc`.
+
+Second, if a hostname was requested, `syscall.Sethostname` sets it. Because the child already belongs to the new UTS namespace, this changes the hostname observed in that namespace, not the host's hostname. If no hostname was configured, the code skips this call.
+
+Third, `syscall.Chroot(config.RootFS)` changes how this process resolves `/` and absolute paths. The immediately following `os.Chdir("/")` moves its current working directory into that new root. Both steps matter: changing the root does not by itself move an existing working directory.
+
+This is also the security boundary we must not overclaim. `chroot` changes pathname resolution for the process, but it is not a complete security boundary. This educational runtime combines it with namespaces to demonstrate the filesystem view; production isolation needs substantially more hardening.
+
+At this point, `/hello.sh` resolves inside the prepared image rootfs. But the process view is still incomplete. A rootfs directory named `/proc` is only a mount point. It does not automatically become a proc filesystem, and reusing a proc mount created from the host view would expose the wrong information.
+
+[CLICK]
+
+[POINT TO EXACT FRAGMENT 2]
+
+The second fragment continues in exact execution order. `os.MkdirAll` ensures that `/proc` exists inside the changed root. Then `syscall.Mount` mounts a new filesystem of type `proc` there. This call happens after creation of the PID and mount namespaces and after `chroot`, so the mount is placed in the child's mount view at the path the payload will call `/proc`, and proc reports the new PID namespace's process view. The `MS_NOSUID`, `MS_NOEXEC`, and `MS_NODEV` flags restrict how that proc mount can be used.
+
+Only now are all four runtime promises assembled. The child has its namespace memberships, optional hostname, changed root, current directory, and namespace-aware `/proc`.
+
+The final operation is `syscall.Exec`. Its first argument is the configured executable path. The full command slice becomes the argument vector, and the current environment is passed to the new program. If the executable does not exist inside the changed root, the code reports that it was not found inside the root filesystem. Other failures are reported as an exec failure.
+
+On success, `syscall.Exec` does not return. The next slide is about why that detail produces the result we want.
+
+The final call removes mini-docker from the process tree.
+
+[NEXT SLIDE]
+
+## Slide 8 - Exec makes the payload PID 1 (3 minutes)
+
+[POINT TO BEFORE EXEC]
+
+Immediately before `exec`, the mini-docker child is already PID 1 inside the new PID namespace. It has done the bootstrap work, but it is still running the mini-docker program.
+
+[POINT TO AFTER EXEC]
+
+`exec` is process replacement, not process creation. The kernel keeps the process and replaces its program image with `/hello.sh`. There is no extra payload child and no bootstrap parent left inside the namespace. The Go bootstrap code is gone, and a successful `syscall.Exec` never returns to run the lines after it.
+
+Because the process identity continues across `exec`, the payload inherits the namespace memberships and filesystem context that the bootstrap prepared. The same process that was PID 1 while running mini-docker is now PID 1 while running `/hello.sh`. From the host it remains an ordinary process with a host-visible PID. From inside its PID namespace it is PID 1.
+
+That is why the phrase "the payload becomes PID 1" is precise only when we include "inside the new PID namespace." We have not replaced the host's init process, and we have not started a guest kernel.
+
+[CLICK]
+
+[POINT TO TERMINAL OUTPUT]
+
+Now connect the visible results back to the four promises.
+
+`hostname: demo-box` proves the hostname view selected by the UTS namespace and changed by `Sethostname`.
+
+`pid: 1` proves the process-ID view selected by the PID namespace. It is the inherited identity of the exec-replaced process, not a PID assigned by `chroot` or by the script.
+
+The root entries include `hello.sh` and the image directories because `chroot` changed absolute pathname resolution to the prepared rootfs and `chdir` moved into it.
+
+The `proc` entry marks the path prepared for `/proc`. The listing alone cannot prove that a filesystem is mounted there; the source we just inspected establishes that it is a new proc filesystem mounted after namespace creation. Programs reading it therefore see the PID namespace's process view rather than a proc tree inherited from the host.
+
+One ordinary Linux process now observes all four views we promised. Namespace creation established the isolation boundary, child setup constructed the view, and `exec` installed the real payload without adding another process.
+
+Now let the real program prove every claim.
+
+[NEXT SLIDE]
+
+## Slide 9 - Live demo: pull, build, run (4 minutes)
+
+[SWITCH TO TERMINAL]
+
+We will run the complete path with a fresh local store.
+
+```bash
+export MINI_DOCKER_HOME="$(mktemp -d)"
+./bin/mini-docker pull alpine:3.22
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
+```
+
+First, this environment variable gives the demo an empty store, so the lifecycle starts without relying on an earlier pull or build.
+
+[PAUSE]
+
+Now Pull turns remote OCI content into the local Alpine rootfs and its command metadata.
+
+[PAUSE]
+
+Build copies that rootfs, adds `hello.sh`, runs `chmod` against the build filesystem, and persists `/hello.sh` as the command for the derived image.
+
+Before I press Enter on Run, what should this one process observe?
+
+[PAUSE]
+
+Let the command run. We do not need to fill every pause; the output is the proof.
+
+```text
+hello from mini-docker
+hostname: demo-box
+pid: 1
+root entries: bin dev etc hello.sh lib proc tmp usr ...
+```
+
+There are four useful checks here. `hello from mini-docker` proves that the command recorded during Build became the payload. `hostname: demo-box` is the UTS namespace result. `pid: 1` is the PID namespace plus `exec` result. The root entries prove that `/` is the image-derived filesystem because it contains our script and the image directories. They also show the `/proc` mount point; the runtime code, rather than this directory listing alone, tells us that procfs is mounted there. The exact directory list can vary slightly, but those causal links do not.
+
+[FALLBACK - AFTER TEN SECONDS WITHOUT USEFUL PROGRESS]
+
+If a live command fails or runs long, show `presentation/assets/demo-output.txt` now. Continue with the same four checks from the captured output. Do not debug networking, sudo, namespaces, or line endings on stage.
+
+[RETURN TO DECK]
+
+That is the minimal mechanism. Now draw the production boundary.
+
+[NEXT SLIDE]
+
+## Slide 10 - The minimal answer (2 minutes)
+
+So, how does Docker work at its core?
+
+In the mechanism we have just demonstrated, a container is a normal Linux process launched with namespace isolation, a prepared root filesystem, a mounted `/proc`, and a payload installed by replacing the bootstrap program with `exec`.
+
+The image side prepares files and command metadata. The runtime side creates PID, UTS, and mount namespace views. The child changes pathname resolution to the rootfs, mounts proc from inside the new view, and replaces itself with the configured command. The result is not a small virtual machine. It is a process using the host kernel while observing a deliberately constructed environment.
+
+[CLICK]
+
+[POINT TO OMITTED CAPABILITIES]
+
+That explains the core mechanism, not the complete Docker product. Production container systems add cgroups for resource control, networking, layer storage, volumes, security hardening, distribution, and orchestration. They also need robust lifecycle management and operational behavior around those capabilities.
+
+This project is educational. It demonstrates how a rootfs and Linux process primitives can produce the observations we saw, but it is not a secure, production-ready container engine and it does not claim Docker compatibility.
+
+An image and rootfs, Linux namespaces, a changed root, a private `/proc`, and `exec` are enough to demonstrate the core runtime idea. Docker adds the production system around it.
+
+[PAUSE]
+
+That's the core of a container. Questions?
