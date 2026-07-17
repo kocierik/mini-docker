@@ -9,9 +9,14 @@
 
 ```bash
 go build -o bin/mini-docker ./cmd/mini-docker
+sudo -v
+```
+
+## Shared Demo Sequence
+
+```bash
 export MINI_DOCKER_HOME="$(mktemp -d)"
 ./bin/mini-docker pull alpine:3.22
-sudo -v
 sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
 sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
 ```

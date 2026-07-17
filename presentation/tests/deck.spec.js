@@ -2,6 +2,42 @@ import { readFile } from 'node:fs/promises';
 
 import { expect, test } from '@playwright/test';
 
+const sharedDemoSequence = [
+  'export MINI_DOCKER_HOME="$(mktemp -d)"',
+  './bin/mini-docker pull alpine:3.22',
+  'sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo',
+  'sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest',
+];
+
+function normalizeCommandLines(lines) {
+  return lines.map((line) => line.trim()).filter(Boolean).map((line) => line.replace(/^\$\s*/, ''));
+}
+
+function extractMarkdownBashBlock(document, heading) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = `## ${escapedHeading}[\\s\\S]*?\`\`\`bash\\r?\\n([\\s\\S]*?)\\r?\\n\`\`\``;
+  const match = document.match(new RegExp(pattern));
+  expect(match).not.toBeNull();
+
+  return normalizeCommandLines(match[1].split('\n'));
+}
+
+function extractPromptCommands(document) {
+  return normalizeCommandLines(document.split('\n').filter((line) => line.startsWith('$ ')));
+}
+
+function extractSlideCommands(document) {
+  const match = document.match(/<section data-slide="demo">[\s\S]*?<div class="terminal demo-commands">([\s\S]*?)<\/div>/);
+  expect(match).not.toBeNull();
+
+  return normalizeCommandLines(
+    match[1]
+      .replace(/<span class="prompt">\$<\/span>/g, '$ ')
+      .replace(/<br\s*\/?>/g, '\n')
+      .split('\n'),
+  );
+}
+
 test('loads the ten-slide offline deck', async ({ page }) => {
   await page.goto('/');
 
@@ -107,12 +143,19 @@ test('packages notes and a consistent demo fallback', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.reveal .slides > section aside.notes')).toHaveCount(10);
 
+  const readme = await readFile('README.md', 'utf8');
+  const slideMarkup = await readFile('presentation/index.html', 'utf8');
   const notes = await readFile('presentation/notes.md', 'utf8');
   const demo = await readFile('presentation/demo.md', 'utf8');
   const fallback = await readFile('presentation/assets/demo-output.txt', 'utf8');
+  const slideCommands = extractSlideCommands(slideMarkup);
 
   expect(notes.match(/^## Slide /gm)).toHaveLength(10);
-  expect(demo).toContain('sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME"');
+  expect(extractMarkdownBashBlock(readme, 'Exact Demo Commands')).toEqual(sharedDemoSequence);
+  expect(extractMarkdownBashBlock(readme, 'Fresh End-To-End Demo')).toEqual(sharedDemoSequence);
+  expect(slideCommands).toEqual(sharedDemoSequence);
+  expect(extractMarkdownBashBlock(demo, 'Shared Demo Sequence')).toEqual(sharedDemoSequence);
+  expect(extractPromptCommands(fallback)).toEqual(sharedDemoSequence);
   expect(fallback).toContain('hostname: demo-box');
   expect(fallback).toContain('pid: 1');
 });

@@ -1,3 +1,4 @@
+$ export MINI_DOCKER_HOME="$(mktemp -d)"
 $ ./bin/mini-docker pull alpine:3.22
 Pulling alpine:3.22...
 Pulled alpine:3.22
