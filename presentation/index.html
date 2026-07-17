@@ -8,10 +8,72 @@
   <body>
     <div class="reveal">
       <div class="slides">
-        <section data-slide="question"><h1>How does Docker work?</h1></section>
-        <section data-slide="workflow"><h2>Pull. Build. Run.</h2></section>
-        <section data-slide="pull"><h2>Pull</h2></section>
-        <section data-slide="build"><h2>Build</h2></section>
+        <section data-slide="question" class="title-slide">
+          <p class="eyebrow proof">BUILD YOUR OWN DOCKER</p>
+          <h1>How does Docker work?</h1>
+          <div class="terminal proof-terminal">
+            <span class="prompt">$</span> mini-docker run --hostname demo-box hello:latest<br>
+            <span class="muted">hostname:</span> <strong>demo-box</strong>
+            <span class="muted">pid:</span> <strong>1</strong>
+          </div>
+          <p class="thesis">Follow one process from remote image to isolated PID 1.</p>
+          <aside class="notes">0:00-2:00. Open exactly: “How does Docker work?” Establish that the answer will be executable, not metaphorical. Transition: “First, separate what we prepare from what we run.”</aside>
+        </section>
+
+        <section data-slide="workflow">
+          <p class="eyebrow">THE LIFECYCLE</p>
+          <h2>Prepare a filesystem. Start a process.</h2>
+          <div class="pipeline" aria-label="Pull, build, run pipeline">
+            <div class="stage data"><b>pull</b><span>remote image → local rootfs</span></div>
+            <span class="arrow">→</span>
+            <div class="stage data"><b>build</b><span>rootfs → derived rootfs + CMD</span></div>
+            <span class="arrow">→</span>
+            <div class="stage runtime"><b>run</b><span>rootfs + CMD → PID 1</span></div>
+          </div>
+          <p class="takeaway">An image is input. A container is a running process.</p>
+          <aside class="notes">2:00-4:00. Define image versus container. Do not discuss namespaces yet. Transition: “Let us manufacture the input first.”</aside>
+        </section>
+
+        <section data-slide="pull">
+          <p class="eyebrow data">CODE MOMENT 01 · PULL</p>
+          <h2>A remote OCI image becomes a local rootfs.</h2>
+          <div class="two-column">
+            <div class="terminal"><span class="prompt">$</span> mini-docker pull alpine:3.22<br><span class="muted">Pulling...</span><br><span class="proof">Pulled alpine:3.22</span></div>
+            <div class="blueprint fragment"><span>OCI layers</span><b>flatten</b><span>rootfs + CMD</span></div>
+          </div>
+          <pre class="fragment"><code class="language-go" data-trim>if err := extractRootFS(rootfs, archive); err != nil {
+    return fmt.Errorf("extract image: %w", err)
+}
+metadata := image.Metadata{
+    Name: parsedReference.Name(),
+    Command: slices.Clone(configFile.Config.Cmd),
+}
+return puller.store.Put(ctx, parsedReference.Name(), rootfs, metadata)</code></pre>
+          <p class="source">internal/registry/puller.go · (*Puller).Pull</p>
+          <aside class="notes">4:00-7:00. Observe the command, explain flattening, then reveal publication. Avoid registry protocol details. Transition: “Build starts from that local result.”</aside>
+        </section>
+
+        <section data-slide="build">
+          <p class="eyebrow data">CODE MOMENT 02 · BUILD</p>
+          <h2>Build derives an image; it does not start the final container.</h2>
+          <div class="two-column">
+            <pre><code>FROM alpine:3.22
+COPY hello.sh /hello.sh
+RUN chmod +x /hello.sh
+CMD ["/hello.sh"]</code></pre>
+            <pre class="fragment"><code class="language-go" data-trim>case dockerfile.Copy:
+    err = copyFileIntoRootFS(contextDir, buildRootFS,
+        instruction.Source, instruction.Destination)
+case dockerfile.Run:
+    err = builder.executor.Execute(ctx, buildRootFS,
+        []string{"/bin/sh", "-c", instruction.Command})
+case dockerfile.Cmd:
+    metadata.Command = append([]string(nil), instruction.Command...)</code></pre>
+          </div>
+          <p class="source">internal/builder/builder.go · (*Builder).Build</p>
+          <p class="takeaway fragment">RUN mutates now. CMD records what should run later.</p>
+          <aside class="notes">7:00-10:00. Read the four-line Dockerfile top to bottom. Emphasize that RUN uses the runtime path during build while CMD is metadata. Transition: “Now we have the two inputs: a rootfs and a command.”</aside>
+        </section>
         <section data-slide="run-contract"><h2>What must run do?</h2></section>
         <section data-slide="namespaces"><h2>Re-exec + namespaces</h2></section>
         <section data-slide="rootfs"><h2>Rootfs + /proc</h2></section>
