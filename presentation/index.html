@@ -102,43 +102,76 @@ CMD ["/hello.sh"]</code></pre>
           <div class="process-flow">
             <div>host CLI</div><span>re-exec</span><div class="runtime-box">child mini-docker</div><span>exec</span><div class="proof-box">payload</div>
           </div>
-          <pre class="fragment"><code class="language-go" data-trim>command := exec.CommandContext(ctx,
-    "/proc/self/exe", internalChildArgument)
-command.Env = append(os.Environ(),
-    childConfigEnvName+"="+encodedConfig)
-command.SysProcAttr = &amp;syscall.SysProcAttr{
-    Cloneflags: syscall.CLONE_NEWPID |
-        syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS,
-}</code></pre>
           <div class="namespace-key fragment"><span>PID · process IDs</span><span>UTS · hostname</span><span>MOUNT · mounts</span></div>
-          <p class="source">internal/runtime/runner.go · runRootFS<br>internal/runtime/runner_linux.go · configureChildCommand</p>
-          <aside class="notes">13:00-17:00. Explain why the program starts itself again. Reveal PID, UTS, and mount meanings only after the clone flags. State that chroot does not create namespace membership. Transition: “The child exists; now it must construct its view.”</aside>
+          <div class="code-inspection fragment">
+            <div class="code-excerpt">
+              <p class="source-label">EXACT FRAGMENT · internal/runtime/runner.go · runRootFS</p>
+              <pre><code class="language-go" data-trim>command := exec.CommandContext(ctx, childExecutablePath(), internalChildArgument)
+command.Stdin = runnerStdin
+command.Stdout = runnerStdout
+command.Stderr = runnerStderr
+command.Env = append(os.Environ(), childConfigEnvName+"="+encodedConfig)</code></pre>
+            </div>
+            <div class="code-excerpt">
+              <p class="source-label">EXACT FRAGMENT · internal/runtime/runner_linux.go · configureChildCommand</p>
+              <pre><code class="language-go" data-trim>command.SysProcAttr = &amp;syscall.SysProcAttr{
+    Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS,
+}
+return nil</code></pre>
+            </div>
+          </div>
+          <p class="annotation"><code>/proc/self/exe</code> resolves to the running mini-docker executable; <code>childExecutablePath()</code> returns it on Linux.</p>
+          <aside class="notes">13:00-17:00. Observe the process flow first. Explain the namespace key next: PID changes process IDs, UTS changes hostname, and MOUNT isolates mount operations. Then inspect the two exact source fragments separately. Explain /proc/self/exe from the labeled annotation, not as substituted source. State that namespace membership exists before chroot. Transition: “The child exists; now it must construct its view.”</aside>
         </section>
 
         <section data-slide="rootfs">
           <p class="eyebrow runtime">CODE MOMENT 04 · CHILD</p>
           <h2>Construct the view from the outside in.</h2>
           <div class="two-column code-pair">
-            <pre><code class="language-go" data-trim>syscall.Mount("", "/", "",
-    syscall.MS_REC|syscall.MS_PRIVATE, "")
-syscall.Sethostname([]byte(config.Hostname))
-syscall.Chroot(config.RootFS)
-os.Chdir("/")</code></pre>
-            <pre class="fragment"><code class="language-go" data-trim>os.MkdirAll("/proc", 0o555)
-syscall.Mount("proc", "/proc", "proc",
-    syscall.MS_NOSUID |
-        syscall.MS_NOEXEC |
-        syscall.MS_NODEV, "")
-syscall.Exec(config.Command[0],
-    config.Command, os.Environ())</code></pre>
+          <div class="code-excerpt">
+              <p class="source-label">EXACT FRAGMENT 1 · internal/runtime/runner_linux.go · runInternalChild</p>
+            <pre><code class="language-go" data-trim>if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
+      return fmt.Errorf("failed to make mount propagation private: %w", err)
+    }
+    if config.Hostname != "" {
+      if err := syscall.Sethostname([]byte(config.Hostname)); err != nil {
+        return fmt.Errorf("failed to set hostname: %w", err)
+      }
+    }
+    if err := syscall.Chroot(config.RootFS); err != nil {
+      return fmt.Errorf("failed to chroot into rootfs: %w", err)
+    }
+    if err := os.Chdir("/"); err != nil {
+      return fmt.Errorf("failed to change directory to /: %w", err)
+    }</code></pre>
+          </div>
+          <div class="code-excerpt fragment">
+              <p class="source-label">EXACT FRAGMENT 2 · internal/runtime/runner_linux.go · runInternalChild</p>
+            <pre><code class="language-go" data-trim>if err := os.MkdirAll("/proc", 0o555); err != nil {
+      return fmt.Errorf("failed to create /proc mountpoint: %w", err)
+    }
+    if err := syscall.Mount("proc", "/proc", "proc", syscall.MS_NOSUID|syscall.MS_NOEXEC|syscall.MS_NODEV, ""); err != nil {
+      return fmt.Errorf("failed to mount /proc: %w", err)
+    }
+    defer syscall.Unmount("/proc", 0)
+
+    if err := syscall.Exec(config.Command[0], config.Command, os.Environ()); err != nil {
+      if errors.Is(err, syscall.ENOENT) {
+        return fmt.Errorf("command not found inside root filesystem: %s", config.Command[0])
+      }
+      return fmt.Errorf("failed to exec command: %w", err)
+    }
+    return nil</code></pre>
+          </div>
           </div>
           <p class="source">internal/runtime/runner_linux.go · runInternalChild</p>
-          <aside class="notes">17:00-21:00. Follow execution order. Define chroot as path-resolution change, not a security boundary. Mount /proc after namespace entry so it reports the child view. Transition: “The final call removes mini-docker from the process tree.”</aside>
+          <p class="annotation"><code>chroot</code> changes path resolution; it is not a complete security boundary.</p>
+          <aside class="notes">17:00-21:00. Follow the exact fragments in execution order, including representative error checks. Private mount propagation comes first. The hostname changes only when configured. Chroot changes path resolution; it is not a complete security boundary. Mount /proc after namespace entry so it reports the child view. Exec is last and replaces the child program. Transition: “The final call removes mini-docker from the process tree.”</aside>
         </section>
 
         <section data-slide="pid-one">
           <p class="eyebrow proof">THE OBSERVABLE RESULT</p>
-          <h2><code>exec</code> replaces bootstrap. The payload becomes PID 1.</h2>
+          <h2><code>exec</code> replaces bootstrap. The payload becomes PID 1 inside the new PID namespace.</h2>
           <div class="before-after">
             <div><span class="muted">before exec</span><b>PID 1 · mini-docker child</b></div>
             <span class="arrow">→</span>
@@ -146,7 +179,7 @@ syscall.Exec(config.Command[0],
           </div>
           <div class="terminal fragment">hostname: <strong>demo-box</strong><br>pid: <strong>1</strong><br>root entries: bin dev etc hello.sh lib proc tmp usr ...</div>
           <p class="takeaway">Same process identity. New program image.</p>
-          <aside class="notes">21:00-24:00. Explain replacement, not spawning. Connect hostname to UTS, pid 1 to PID namespace, and /proc/root entries to mount namespace plus chroot. Transition: “Now let the real program prove every claim.”</aside>
+          <aside class="notes">21:00-24:00. Explain replacement, not spawning. The payload keeps the process identity that is PID 1 inside the new PID namespace. Connect hostname to UTS, pid 1 to the PID namespace, and /proc/root entries to mount namespace plus chroot. Transition: “Now let the real program prove every claim.”</aside>
         </section>
         <section data-slide="demo"><h2>Live demo</h2></section>
         <section data-slide="docker-adds"><h2>What Docker adds</h2></section>
