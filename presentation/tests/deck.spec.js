@@ -55,6 +55,29 @@ test('supports keyboard navigation', async ({ page }) => {
   await expect(page.locator('[data-slide="workflow"]')).toHaveClass(/present/);
 });
 
+test('uses a dark reveal surface with readable heading contrast', async ({ page }) => {
+  await page.goto('/');
+
+  const styles = await page.evaluate(() => {
+    const section = document.querySelector('.reveal .slides > section.present');
+    const heading = document.querySelector('[data-slide="question"] h1');
+
+    return {
+      viewportBackground: getComputedStyle(document.querySelector('.reveal-viewport')).backgroundColor,
+      revealBackground: getComputedStyle(document.querySelector('.reveal')).backgroundColor,
+      slideBackground: getComputedStyle(section).backgroundColor,
+      headingColor: getComputedStyle(heading).color,
+    };
+  });
+
+  expect(styles).toEqual({
+    viewportBackground: 'rgb(16, 23, 19)',
+    revealBackground: 'rgb(16, 23, 19)',
+    slideBackground: 'rgb(16, 23, 19)',
+    headingColor: 'rgb(237, 244, 239)',
+  });
+});
+
 test('teaches pull and build with real source references', async ({ page }) => {
   await page.goto('/');
 

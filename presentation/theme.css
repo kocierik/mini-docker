@@ -10,16 +10,22 @@
 }
 
 * { box-sizing: border-box; }
-body { background: var(--surface); }
+html, body { background: var(--surface); }
+
+.reveal-viewport {
+  background: var(--surface);
+  color: var(--ink);
+}
 
 .reveal {
+  background: var(--surface);
   color: var(--ink);
   font-family: "IBM Plex Sans Condensed", sans-serif;
   font-size: 34px;
 }
 
 .reveal .slides { text-align: left; }
-.reveal .slides > section { height: 100%; padding: 56px 64px; }
+.reveal .slides > section { background: var(--surface); height: 100%; padding: 56px 64px; }
 .reveal h1, .reveal h2, .reveal h3 {
   color: var(--ink);
   font-family: inherit;
