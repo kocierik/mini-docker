@@ -25,7 +25,7 @@ That question can lead to a very long list of features and commands. But listing
 
 This small result is where we are going. We will start one process. From inside, it will see the hostname `demo-box`. It will report process ID 1. Its files will come from an image rather than from the host filesystem we launched it on.
 
-Those observations are the proof. They are not yet the explanation. I do not want to hide that explanation behind a metaphor about lightweight virtual machines, and I do not want to tour every subsystem in Docker. Instead, we will follow one process through one narrow path: `pull`, then `build`, then `run`.
+Those observations are the result we need to explain. They are not yet the explanation. I do not want to hide that explanation behind a metaphor about lightweight virtual machines, and I do not want to tour every subsystem in Docker. Instead, we will follow one process through one narrow path: `pull`, then `build`, then `run`.
 
 At each step, we will ask what data exists, what changes it, and what the next step receives. By the end, the terminal output should no longer look surprising. We should be able to connect each observation to a concrete decision in this implementation.
 
@@ -297,7 +297,7 @@ Before I press Enter on Run, what should this one process observe?
 
 [PAUSE]
 
-Let the command run. We do not need to fill every pause; the output is the proof.
+Let the command run. We do not need to fill every pause; the output gives us the observations to check.
 
 ```text
 hello from mini-docker
