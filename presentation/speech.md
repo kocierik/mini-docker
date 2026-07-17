@@ -117,8 +117,6 @@ That distinction prevents a common misunderstanding. `RUN` may use the same exec
 
 At this point the preparation side is complete. We have the two inputs shown at the start: a root filesystem and a command. The remaining question is the runtime contract: what must Run do so one process observes that filesystem as its root, the requested hostname, and PID 1?
 
-Now we have the two inputs: a rootfs and a command.
-
 [NEXT SLIDE]
 
 ## Slide 5 - What must run change? (3 minutes)
@@ -197,7 +195,7 @@ Second, if a hostname was requested, `syscall.Sethostname` sets it. Because the 
 
 Third, `syscall.Chroot(config.RootFS)` changes how this process resolves `/` and absolute paths. The immediately following `os.Chdir("/")` moves its current working directory into that new root. Both steps matter: changing the root does not by itself move an existing working directory.
 
-This is also the security boundary we must not overclaim. `chroot` changes pathname resolution for the process, but it is not a complete security boundary. This educational runtime combines it with namespaces to demonstrate the filesystem view; production isolation needs substantially more hardening.
+This is where we must not overclaim security. `chroot` changes pathname resolution for the process, but it is not a complete security boundary. This educational runtime combines it with namespaces to demonstrate the filesystem view; production isolation needs substantially more hardening.
 
 At this point, `/hello.sh` resolves inside the prepared image rootfs. But the process view is still incomplete. A rootfs directory named `/proc` is only a mount point. It does not automatically become a proc filesystem, and reusing a proc mount created from the host view would expose the wrong information.
 
@@ -213,7 +211,7 @@ The final operation is `syscall.Exec`. Its first argument is the configured exec
 
 On success, `syscall.Exec` does not return. The next slide is about why that detail produces the result we want.
 
-The final call removes mini-docker from the process tree.
+The final call preserves the process, its PID, its parent relationship, and its position in the process tree while replacing the mini-docker program image with the payload.
 
 [NEXT SLIDE]
 
