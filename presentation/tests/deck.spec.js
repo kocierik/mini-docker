@@ -85,9 +85,11 @@ test('teaches pull and build with real source references', async ({ page }) => {
   const pullCode = pullSlide.locator('code.language-go');
   await expect(pullSlide).toContainText('remote OCI image');
   await expect(pullSlide).toContainText('internal/registry/puller.go');
-  await expect.soft(pullCode).toContainText('if err := puller.store.Put');
-  await expect.soft(pullCode).toContainText('return fmt.Errorf("publish image: %w", err)');
-  await expect.soft(pullCode).toContainText('return nil');
+  await expect.soft(pullCode).toContainText('rootfs := filepath.Join(temporaryRoot, "rootfs")');
+  await expect.soft(pullCode).toContainText('if err := os.Mkdir(rootfs, 0o755); err != nil');
+  await expect.soft(pullCode).toContainText('if err := extractRootFS(rootfs, archive); err != nil');
+  await expect.soft(pullCode).toContainText('return fmt.Errorf("extract image: %w", err)');
+  await expect.soft(pullCode).toContainText('metadata := image.Metadata{');
   await expect.soft(pullCode).not.toContainText('return puller.store.Put');
 
   const buildSlide = page.locator('[data-slide="build"]');
