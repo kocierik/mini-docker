@@ -29,6 +29,15 @@ sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname d
 - 2:20-3:05: type run, pause before Enter, and ask what the process should observe.
 - 3:05-4:00: connect hostname, PID 1, and root entries to the explained primitives.
 
+## Expected Output
+
+```text
+hello from mini-docker
+hostname: demo-box
+pid: 1
+root entries: bin dev etc hello.sh lib proc tmp usr ...
+```
+
 ## Fallback
 
 After ten seconds without useful progress, display `presentation/assets/demo-output.txt` and explain the same evidence. Do not debug network, sudo, namespaces, or line endings on stage.
