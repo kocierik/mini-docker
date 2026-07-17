@@ -10,6 +10,10 @@
 
 body { background: var(--surface); }
 .reveal { color: var(--ink); font-family: "IBM Plex Sans Condensed", sans-serif; }
+.reveal .proof { color: var(--proof); }
+.reveal .data { color: var(--data); }
+.reveal .runtime { color: var(--runtime); }
+.reveal .muted { color: var(--muted); }
 .reveal .slides { text-align: left; }
 .reveal .slides > section { box-sizing: border-box; height: 100%; padding: 56px 64px; }
 .reveal h1, .reveal h2, .reveal h3 { color: var(--ink); font-family: inherit; letter-spacing: 0; text-transform: none; }

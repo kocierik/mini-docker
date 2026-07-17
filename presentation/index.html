@@ -41,14 +41,16 @@
             <div class="terminal"><span class="prompt">$</span> mini-docker pull alpine:3.22<br><span class="muted">Pulling...</span><br><span class="proof">Pulled alpine:3.22</span></div>
             <div class="blueprint fragment"><span>OCI layers</span><b>flatten</b><span>rootfs + CMD</span></div>
           </div>
-          <pre class="fragment"><code class="language-go" data-trim>if err := extractRootFS(rootfs, archive); err != nil {
-    return fmt.Errorf("extract image: %w", err)
-}
-metadata := image.Metadata{
-    Name: parsedReference.Name(),
-    Command: slices.Clone(configFile.Config.Cmd),
-}
-return puller.store.Put(ctx, parsedReference.Name(), rootfs, metadata)</code></pre>
+          <pre class="fragment"><code class="language-go" data-trim>
+            metadata := image.Metadata{
+                Name: parsedReference.Name(),
+                Command: slices.Clone(configFile.Config.Cmd),
+            }
+            if err := puller.store.Put(ctx, parsedReference.Name(), rootfs, metadata); err != nil {
+                return fmt.Errorf("publish image: %w", err)
+            }
+            return nil
+          </code></pre>
           <p class="source">internal/registry/puller.go · (*Puller).Pull</p>
           <aside class="notes">4:00-7:00. Observe the command, explain flattening, then reveal publication. Avoid registry protocol details. Transition: “Build starts from that local result.”</aside>
         </section>
@@ -61,18 +63,25 @@ return puller.store.Put(ctx, parsedReference.Name(), rootfs, metadata)</code></p
 COPY hello.sh /hello.sh
 RUN chmod +x /hello.sh
 CMD ["/hello.sh"]</code></pre>
-            <pre class="fragment"><code class="language-go" data-trim>case dockerfile.Copy:
-    err = copyFileIntoRootFS(contextDir, buildRootFS,
-        instruction.Source, instruction.Destination)
-case dockerfile.Run:
-    err = builder.executor.Execute(ctx, buildRootFS,
-        []string{"/bin/sh", "-c", instruction.Command})
-case dockerfile.Cmd:
-    metadata.Command = append([]string(nil), instruction.Command...)</code></pre>
+            <div class="fragment">
+              <div class="blueprint"><span>base rootfs</span><b>COPY + RUN mutate</b><span>derived rootfs + CMD</span></div>
+              <p class="takeaway">COPY and RUN change the rootfs now. CMD records the command for later.</p>
+            </div>
           </div>
+            <pre class="fragment"><code class="language-go" data-trim>
+            case dockerfile.Copy:
+              if err := copyFileIntoRootFS(contextDir, buildRootFS, instruction.Source, instruction.Destination); err != nil {
+                return err
+              }
+            case dockerfile.Run:
+              if err := builder.executor.Execute(ctx, buildRootFS, []string{"/bin/sh", "-c", instruction.Command}); err != nil {
+                return err
+              }
+            case dockerfile.Cmd:
+              metadata.Command = append([]string(nil), instruction.Command...)
+            </code></pre>
           <p class="source">internal/builder/builder.go · (*Builder).Build</p>
-          <p class="takeaway fragment">RUN mutates now. CMD records what should run later.</p>
-          <aside class="notes">7:00-10:00. Read the four-line Dockerfile top to bottom. Emphasize that RUN uses the runtime path during build while CMD is metadata. Transition: “Now we have the two inputs: a rootfs and a command.”</aside>
+          <aside class="notes">7:00-10:00. Observe the four-line Dockerfile, reveal the rootfs transformation and takeaway, then inspect the guarded switch. Emphasize that RUN uses the runtime path during build while CMD is metadata. Transition: “Now we have the two inputs: a rootfs and a command.”</aside>
         </section>
         <section data-slide="run-contract"><h2>What must run do?</h2></section>
         <section data-slide="namespaces"><h2>Re-exec + namespaces</h2></section>

@@ -20,11 +20,23 @@ test('supports keyboard navigation', async ({ page }) => {
 test('teaches pull and build with real source references', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.locator('[data-slide="pull"]')).toContainText('remote OCI image');
-  await expect(page.locator('[data-slide="pull"]')).toContainText('internal/registry/puller.go');
-  await expect(page.locator('[data-slide="pull"] code')).toContainText('puller.store.Put');
+  const pullSlide = page.locator('[data-slide="pull"]');
+  const pullCode = pullSlide.locator('code.language-go');
+  await expect(pullSlide).toContainText('remote OCI image');
+  await expect(pullSlide).toContainText('internal/registry/puller.go');
+  await expect.soft(pullCode).toContainText('if err := puller.store.Put');
+  await expect.soft(pullCode).toContainText('return fmt.Errorf("publish image: %w", err)');
+  await expect.soft(pullCode).toContainText('return nil');
+  await expect.soft(pullCode).not.toContainText('return puller.store.Put');
 
-  await expect(page.locator('[data-slide="build"]')).toContainText('FROM alpine:3.22');
-  await expect(page.locator('[data-slide="build"]')).toContainText('internal/builder/builder.go');
-  await expect(page.locator('[data-slide="build"] code.language-go')).toContainText('case dockerfile.Run');
+  const buildSlide = page.locator('[data-slide="build"]');
+  const buildCode = buildSlide.locator('code.language-go');
+  await expect(buildSlide).toContainText('FROM alpine:3.22');
+  await expect(buildSlide).toContainText('internal/builder/builder.go');
+  await expect.soft(buildCode).toContainText('if err := copyFileIntoRootFS');
+  await expect.soft(buildCode).toContainText('if err := builder.executor.Execute');
+  await expect.soft(buildCode).toContainText('return err');
+  await expect.soft(buildCode).toContainText('metadata.Command = append([]string(nil), instruction.Command...)');
+  await expect.soft(buildCode).not.toContainText('err = copyFileIntoRootFS');
+  await expect.soft(buildCode).not.toContainText('err = builder.executor.Execute');
 });
