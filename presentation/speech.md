@@ -15,7 +15,7 @@ How does Docker work?
 
 [PAUSE]
 
-That question can lead to a very long list of features and commands. But listing features is not the same as understanding a container. The useful question is more precise: how can an ordinary process start and observe a machine that looks different from the host around it?
+That question can lead to a very long list of features and commands. But listing features is not the same as understanding a container. The useful question is more precise: how can we start an ordinary process that observes an environment that looks different from the host around it?
 
 [POINT TO TERMINAL]
 
@@ -245,7 +245,7 @@ The `proc` entry marks the path prepared for `/proc`. The listing alone cannot p
 
 One ordinary Linux process now observes all four views we promised. Namespace creation established the isolation boundary, child setup constructed the view, and `exec` installed the real payload without adding another process.
 
-Now let the real program prove every claim.
+Now let the real program demonstrate those observable results.
 
 [NEXT SLIDE]
 
