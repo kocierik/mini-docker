@@ -8,6 +8,10 @@
 - `[POINT TO ...]`: direct attention to a visible element.
 - `[SWITCH TO TERMINAL]`: leave the deck for the live demo.
 - `[RETURN TO DECK]`: return to the presentation.
+- `[RUN SETUP COMMAND]`: execute the environment setup command.
+- `[RUN PULL]`: execute the pull command.
+- `[RUN BUILD]`: execute the build command.
+- `[RUN - PAUSE BEFORE ENTER]`: prepare the run command, then pause before pressing Enter.
 
 ## Slide 1 - How does Docker work? (2 minutes)
 
@@ -235,11 +239,11 @@ That is why the phrase "the payload becomes PID 1" is precise only when we inclu
 
 Now connect the visible results back to the four promises.
 
-`hostname: demo-box` proves the hostname view selected by the UTS namespace and changed by `Sethostname`.
+`hostname: demo-box` confirms the expected hostname observation. The preceding source inspection provides the causal mechanism evidence: the child is created in a new UTS namespace, then `Sethostname` changes the hostname observed there.
 
-`pid: 1` proves the process-ID view selected by the PID namespace. It is the inherited identity of the exec-replaced process, not a PID assigned by `chroot` or by the script.
+`pid: 1` confirms the expected process-ID observation. The source inspection showed the mechanism: the child is created first in a new PID namespace, then `exec` preserves that process identity while replacing the bootstrap program with the payload. It is not a PID assigned by `chroot` or by the script.
 
-The root entries include `hello.sh` and the image directories because `chroot` changed absolute pathname resolution to the prepared rootfs and `chdir` moved into it.
+The root entries show the expected image-derived root view, including `hello.sh` and the image directories. The source inspection established the mechanism: `chroot` changed absolute pathname resolution to the prepared rootfs, and `chdir` moved into it.
 
 The `proc` entry marks the path prepared for `/proc`. The listing alone cannot prove that a filesystem is mounted there; the source we just inspected establishes that it is a new proc filesystem mounted after namespace creation. Programs reading it therefore see the PID namespace's process view rather than a proc tree inherited from the host.
 
@@ -255,22 +259,39 @@ Now let the real program demonstrate those observable results.
 
 We will run the complete path with a fresh local store.
 
+[RUN SETUP COMMAND]
+
 ```bash
 export MINI_DOCKER_HOME="$(mktemp -d)"
-./bin/mini-docker pull alpine:3.22
-sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
-sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
 ```
 
 First, this environment variable gives the demo an empty store, so the lifecycle starts without relying on an earlier pull or build.
 
-[PAUSE]
+[RUN PULL]
 
-Now Pull turns remote OCI content into the local Alpine rootfs and its command metadata.
+```bash
+./bin/mini-docker pull alpine:3.22
+```
 
-[PAUSE]
+[FALLBACK - AFTER TEN SECONDS WITHOUT USEFUL PROGRESS]
+
+For this command and each remaining live command, if it fails or runs long, show `presentation/assets/demo-output.txt` and continue with the captured output. Do not debug networking, sudo, namespaces, or line endings on stage.
+
+Pull turns remote OCI content into the local Alpine rootfs and its command metadata.
+
+[RUN BUILD]
+
+```bash
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
+```
 
 Build copies that rootfs, adds `hello.sh`, runs `chmod` against the build filesystem, and persists `/hello.sh` as the command for the derived image.
+
+[RUN - PAUSE BEFORE ENTER]
+
+```bash
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
+```
 
 Before I press Enter on Run, what should this one process observe?
 
@@ -285,11 +306,7 @@ pid: 1
 root entries: bin dev etc hello.sh lib proc tmp usr ...
 ```
 
-There are four useful checks here. `hello from mini-docker` proves that the command recorded during Build became the payload. `hostname: demo-box` is the UTS namespace result. `pid: 1` is the PID namespace plus `exec` result. The root entries prove that `/` is the image-derived filesystem because it contains our script and the image directories. They also show the `/proc` mount point; the runtime code, rather than this directory listing alone, tells us that procfs is mounted there. The exact directory list can vary slightly, but those causal links do not.
-
-[FALLBACK - AFTER TEN SECONDS WITHOUT USEFUL PROGRESS]
-
-If a live command fails or runs long, show `presentation/assets/demo-output.txt` now. Continue with the same four checks from the captured output. Do not debug networking, sudo, namespaces, or line endings on stage.
+There are four useful checks here. `hello from mini-docker` confirms that the recorded command ran as the payload. `hostname: demo-box` and `pid: 1` confirm the expected hostname and process-ID observations. The root entries show the expected image-derived root view because they include our script and the image directories. They also show the `/proc` mount point, but neither the listing nor the other output independently proves how those views were produced. The runtime source we inspected supplies that causal evidence: namespace creation, child setup, `chroot`, the procfs mount, and `exec`. The exact directory list can vary slightly, but the expected observations and the inspected mechanisms remain connected.
 
 [RETURN TO DECK]
 
