@@ -10,7 +10,7 @@ Questions happen after the 30-minute presentation. The talk is guided rather tha
 
 The opening question is:
 
-> How much Docker do we need to isolate one process?
+> How does Docker work?
 
 The closing answer is:
 
@@ -44,6 +44,8 @@ The presentation package will contain:
 - a print stylesheet used to generate a readable PDF backup through the browser's print-to-PDF support.
 
 The deck is operated with keyboard navigation in a browser. It does not depend on network-loaded fonts, scripts, images, or syntax highlighting during the talk.
+
+The implementation uses Reveal.js with a custom theme, bundled through Vite. Reveal.js, syntax highlighting, and IBM Plex font assets are installed locally and included in the production build. Playwright validates slide navigation, content, and projection-sized layouts. The presentation does not use a hosted CDN at runtime.
 
 ## Narrative Structure
 
@@ -174,8 +176,8 @@ At the start of the demo, create a fresh store and run the repository's document
 ```bash
 export MINI_DOCKER_HOME="$(mktemp -d)"
 ./bin/mini-docker pull alpine:3.22
-sudo -E ./bin/mini-docker build -t hello:latest ./testdata/demo
-sudo -E ./bin/mini-docker run --hostname demo-box hello:latest
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker build -t hello:latest ./testdata/demo
+sudo env MINI_DOCKER_HOME="$MINI_DOCKER_HOME" ./bin/mini-docker run --hostname demo-box hello:latest
 ```
 
 Timing and narration:
@@ -245,6 +247,7 @@ The finished package is accepted when all of the following are true:
 ## Approved Decisions
 
 - Format: 30-minute guided English technical talk, with questions afterward.
+- Delivery stack: Reveal.js with a custom theme, Vite, locally bundled assets, and Playwright validation.
 - Narrative: proof and workflow first, runtime internals second, live demo after the mechanisms are understood.
 - Visual direction: terminal-first with systems blueprints as supporting explanation.
 - Slide rhythm: `observe -> explain -> inspect`.
