@@ -8,75 +8,77 @@ import { createServer } from 'vite';
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const outputDir = resolve(repoRoot, 'dist/presentation');
 const printStyles = `
+  @page {
+    size: 13.333in 7.5in;
+    margin: 0;
+  }
+
   html, body {
-    width: auto !important;
-    height: auto !important;
-    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #101713 !important;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   body {
+    width: 1600px !important;
+    min-width: 1600px !important;
+  }
+
+  .pdf-export-root {
+    display: block;
+  }
+
+  .pdf-export-page {
+    width: 1600px !important;
+    height: 900px !important;
+    min-height: 900px !important;
     margin: 0 !important;
     padding: 0 !important;
-  }
-
-  .reveal {
-    width: auto !important;
-    height: auto !important;
-    overflow: visible !important;
-  }
-
-  .reveal .controls,
-  .reveal .progress,
-  .reveal .playback,
-  .reveal .backgrounds,
-  .reveal .slide-number,
-  .state-background,
-  .aria-status {
-    display: none !important;
-  }
-
-  .reveal .slides {
-    position: static !important;
-    width: auto !important;
-    height: auto !important;
-    left: 0 !important;
-    top: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
+    overflow: hidden !important;
+    background: #101713 !important;
     display: block !important;
-    overflow: visible !important;
-    transform: none !important;
-    perspective: none !important;
-  }
-
-  .reveal .slides > section {
-    position: static !important;
-    width: auto !important;
-    min-height: 7.5in !important;
-    height: auto !important;
-    display: block !important;
-    overflow: visible !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    transform: none !important;
-    transition: none !important;
+    position: relative !important;
     page-break-after: always !important;
     break-after: page !important;
   }
 
-  .reveal .slides > section:last-of-type {
+  .pdf-export-page:last-of-type {
     page-break-after: avoid !important;
     break-after: auto !important;
   }
 
-  .reveal .slides .fragment {
+  .pdf-export-page > section {
+    width: 100% !important;
+    height: 900px !important;
+    min-height: 900px !important;
+    margin: 0 !important;
+    display: block !important;
+    position: relative !important;
+    overflow: hidden !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .pdf-export-page .fragment {
     opacity: 1 !important;
     visibility: visible !important;
     transform: none !important;
   }
 
-  .reveal pre code {
+  .pdf-export-page pre code {
     overflow: hidden !important;
+  }
+
+  .pdf-export-page aside.notes {
+    display: none !important;
   }
 `;
 
@@ -92,12 +94,29 @@ const browser = await chromium.launch();
 
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
-  await page.goto('http://127.0.0.1:4174/?print-pdf', { waitUntil: 'networkidle' });
+  await page.goto('http://127.0.0.1:4174/', { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.presentationDeck?.isReady?.() === true);
   await page.addStyleTag({ content: printStyles });
   await page.evaluate(() => {
-    window.presentationDeck.configure({ pdfSeparateFragments: false });
-    document.documentElement.classList.add('print-pdf', 'reveal-print');
+    const exportRoot = document.createElement('main');
+    exportRoot.className = 'pdf-export-root';
+
+    for (const slide of document.querySelectorAll('.reveal .slides > section')) {
+      const pageNode = document.createElement('section');
+      pageNode.className = 'pdf-export-page';
+
+      const clone = slide.cloneNode(true);
+      clone.classList.remove('past', 'present', 'future');
+      clone.querySelectorAll('.fragment').forEach((fragment) => {
+        fragment.classList.add('visible', 'current-fragment');
+      });
+      clone.querySelectorAll('aside.notes').forEach((notes) => notes.remove());
+
+      pageNode.append(clone);
+      exportRoot.append(pageNode);
+    }
+
+    document.body.replaceChildren(exportRoot);
   });
   await page.emulateMedia({ media: 'print' });
   await page.pdf({
