@@ -83,10 +83,71 @@ CMD ["/hello.sh"]</code></pre>
           <p class="source">internal/builder/builder.go · (*Builder).Build</p>
           <aside class="notes">7:00-10:00. Observe the four-line Dockerfile, reveal the rootfs transformation and takeaway, then inspect the guarded switch. Emphasize that RUN uses the runtime path during build while CMD is metadata. Transition: “Now we have the two inputs: a rootfs and a command.”</aside>
         </section>
-        <section data-slide="run-contract"><h2>What must run do?</h2></section>
-        <section data-slide="namespaces"><h2>Re-exec + namespaces</h2></section>
-        <section data-slide="rootfs"><h2>Rootfs + /proc</h2></section>
-        <section data-slide="pid-one"><h2>PID 1 + exec</h2></section>
+        <section data-slide="run-contract">
+          <p class="eyebrow runtime">THE RUNTIME CONTRACT</p>
+          <h2>Make one process observe a different machine.</h2>
+          <div class="contract-grid">
+            <div><span class="muted">hostname</span><strong>demo-box</strong></div>
+            <div><span class="muted">process id</span><strong>1</strong></div>
+            <div><span class="muted">filesystem root</span><strong>image rootfs</strong></div>
+            <div><span class="muted">process view</span><strong>private /proc</strong></div>
+          </div>
+          <p class="takeaway">Isolation is a collection of Linux views, not one container syscall.</p>
+          <aside class="notes">10:00-13:00. Define the desired observations before implementation. Ask which Linux mechanism could change each view. Transition: “Those views begin at process creation.”</aside>
+        </section>
+
+        <section data-slide="namespaces">
+          <p class="eyebrow runtime">CODE MOMENT 03 · PARENT</p>
+          <h2>Re-exec creates the namespace boundary.</h2>
+          <div class="process-flow">
+            <div>host CLI</div><span>re-exec</span><div class="runtime-box">child mini-docker</div><span>exec</span><div class="proof-box">payload</div>
+          </div>
+          <pre class="fragment"><code class="language-go" data-trim>command := exec.CommandContext(ctx,
+    "/proc/self/exe", internalChildArgument)
+command.Env = append(os.Environ(),
+    childConfigEnvName+"="+encodedConfig)
+command.SysProcAttr = &amp;syscall.SysProcAttr{
+    Cloneflags: syscall.CLONE_NEWPID |
+        syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS,
+}</code></pre>
+          <div class="namespace-key fragment"><span>PID · process IDs</span><span>UTS · hostname</span><span>MOUNT · mounts</span></div>
+          <p class="source">internal/runtime/runner.go · runRootFS<br>internal/runtime/runner_linux.go · configureChildCommand</p>
+          <aside class="notes">13:00-17:00. Explain why the program starts itself again. Reveal PID, UTS, and mount meanings only after the clone flags. State that chroot does not create namespace membership. Transition: “The child exists; now it must construct its view.”</aside>
+        </section>
+
+        <section data-slide="rootfs">
+          <p class="eyebrow runtime">CODE MOMENT 04 · CHILD</p>
+          <h2>Construct the view from the outside in.</h2>
+          <div class="two-column code-pair">
+            <pre><code class="language-go" data-trim>syscall.Mount("", "/", "",
+    syscall.MS_REC|syscall.MS_PRIVATE, "")
+syscall.Sethostname([]byte(config.Hostname))
+syscall.Chroot(config.RootFS)
+os.Chdir("/")</code></pre>
+            <pre class="fragment"><code class="language-go" data-trim>os.MkdirAll("/proc", 0o555)
+syscall.Mount("proc", "/proc", "proc",
+    syscall.MS_NOSUID |
+        syscall.MS_NOEXEC |
+        syscall.MS_NODEV, "")
+syscall.Exec(config.Command[0],
+    config.Command, os.Environ())</code></pre>
+          </div>
+          <p class="source">internal/runtime/runner_linux.go · runInternalChild</p>
+          <aside class="notes">17:00-21:00. Follow execution order. Define chroot as path-resolution change, not a security boundary. Mount /proc after namespace entry so it reports the child view. Transition: “The final call removes mini-docker from the process tree.”</aside>
+        </section>
+
+        <section data-slide="pid-one">
+          <p class="eyebrow proof">THE OBSERVABLE RESULT</p>
+          <h2><code>exec</code> replaces bootstrap. The payload becomes PID 1.</h2>
+          <div class="before-after">
+            <div><span class="muted">before exec</span><b>PID 1 · mini-docker child</b></div>
+            <span class="arrow">→</span>
+            <div class="proof-box"><span>after exec</span><b>PID 1 · /hello.sh</b></div>
+          </div>
+          <div class="terminal fragment">hostname: <strong>demo-box</strong><br>pid: <strong>1</strong><br>root entries: bin dev etc hello.sh lib proc tmp usr ...</div>
+          <p class="takeaway">Same process identity. New program image.</p>
+          <aside class="notes">21:00-24:00. Explain replacement, not spawning. Connect hostname to UTS, pid 1 to PID namespace, and /proc/root entries to mount namespace plus chroot. Transition: “Now let the real program prove every claim.”</aside>
+        </section>
         <section data-slide="demo"><h2>Live demo</h2></section>
         <section data-slide="docker-adds"><h2>What Docker adds</h2></section>
       </div>

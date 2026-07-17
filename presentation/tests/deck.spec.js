@@ -40,3 +40,14 @@ test('teaches pull and build with real source references', async ({ page }) => {
   await expect.soft(buildCode).not.toContainText('err = copyFileIntoRootFS');
   await expect.soft(buildCode).not.toContainText('err = builder.executor.Execute');
 });
+
+test('connects runtime primitives to observable proof', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.locator('[data-slide="namespaces"] code')).toContainText('CLONE_NEWPID');
+  await expect(page.locator('[data-slide="namespaces"]')).toContainText('internal/runtime/runner_linux.go');
+  await expect(page.locator('[data-slide="rootfs"] code').first()).toContainText('syscall.Chroot');
+  await expect(page.locator('[data-slide="rootfs"] code').last()).toContainText('syscall.Mount("proc"');
+  await expect(page.locator('[data-slide="pid-one"]')).toContainText('exec replaces bootstrap');
+  await expect(page.locator('[data-slide="pid-one"]')).toContainText('pid: 1');
+});
